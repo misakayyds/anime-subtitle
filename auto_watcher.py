@@ -3,6 +3,7 @@ import time
 import shutil
 import subprocess
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 # 基础目录配置 (动态获取当前脚本所在目录)
 BASE_DIR = Path(__file__).resolve().parent
@@ -13,6 +14,14 @@ ENV_PYTHON = BASE_DIR / "env" / "Scripts" / "python.exe"
 # 确保输入输出文件夹存在
 INPUT_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+# ⚙️ 核心并发控制台
+# 允许后台同时向 DeepSeek 发起几个视频的翻译请求？（推荐 3-5，太高会被 API 官方限流报错）
+MAX_API_WORKERS = 3
+
+# 线程池与任务雷达（防止重复派发任务）
+api_thread_pool = ThreadPoolExecutor(max_workers=MAX_API_WORKERS)
+active_api_tasks = set()
 
 def is_file_ready(filepath):
     """
@@ -26,30 +35,69 @@ def is_file_ready(filepath):
     except Exception:
         return False
 
-def process_queue():
-    # 遍历 Input 目录下的所有文件
+def get_pending_tasks():
+    pending_count = 0
     for root, _, files in os.walk(INPUT_DIR):
         for file in files:
             if file.lower().endswith(".mkv"):
                 input_mkv = Path(root) / file
-                
-                # 计算输出路径
+                rel_path = input_mkv.relative_to(INPUT_DIR)
+                expected_output_ass = OUTPUT_DIR / rel_path.with_suffix('.ass')
+                if not expected_output_ass.exists():
+                    pending_count += 1
+    return pending_count
+
+def background_translation_task(json_path, input_mkv, expected_output_ass):
+    """【后台消费者】专门负责在后台悄悄请求大模型和清理垃圾，绝对不阻塞 GPU"""
+    try:
+        print(f"🚀 [后台分发] 正在为 {input_mkv.name} 并发请求 DeepSeek...")
+        subprocess.run([str(ENV_PYTHON), "llm_translation.py", str(json_path)], cwd=BASE_DIR, check=True)
+        
+        expected_output_ass.parent.mkdir(parents=True, exist_ok=True)
+        generated_ass = BASE_DIR / f"{input_mkv.stem}_bilingual.ass"
+        
+        if generated_ass.exists():
+            shutil.move(str(generated_ass), str(expected_output_ass))
+            print(f"🎉 [后台大捷] {input_mkv.name} 的完美字幕已送达！")
+            
+        # 垃圾回收
+        if json_path.exists():
+            json_path.unlink()
+        vocals_dir = BASE_DIR / "separated" / "htdemucs" / input_mkv.stem
+        if vocals_dir.exists():
+            shutil.rmtree(vocals_dir)
+            
+    except subprocess.CalledProcessError as e:
+        print(f"💥 [后台崩溃] {input_mkv.name} API 翻译失败，已降级或中止。")
+    finally:
+        # 任务做完（不管成功失败），必须把它的名字从雷达里抹掉
+        if input_mkv in active_api_tasks:
+            active_api_tasks.remove(input_mkv)
+
+def process_queue():
+    """【前台生产者】GPU 专属通道，只负责干力气活，干完就扔给后台"""
+    for root, _, files in os.walk(INPUT_DIR):
+        for file in files:
+            if file.lower().endswith(".mkv"):
+                input_mkv = Path(root) / file
                 rel_path = input_mkv.relative_to(INPUT_DIR)
                 expected_output_ass = OUTPUT_DIR / rel_path.with_suffix('.ass')
                 
-                # 🛑 第一道安检（断点续传）：如果成品字幕已经存在，直接跳过！
+                # 1. 如果成品有了，跳过
                 if expected_output_ass.exists():
                     continue
                     
-                # 规则2：如果文件还在拷贝中，暂不处理，等下一轮
+                # 2. 如果这集视频【正在后台被 DeepSeek 翻译中】，绝不能碰，直接跳过去找下一集！
+                if input_mkv in active_api_tasks:
+                    continue
+                    
                 if not is_file_ready(input_mkv):
                     continue
                     
-                print(f"\n==================================================")
-                print(f"🎯 锁定目标: {rel_path.name}")
-                print(f"==================================================")
+                print(f"\n" + "="*50)
+                print(f"🎯 [前台 GPU 锁定目标] {rel_path.name}")
+                print("="*50)
                 
-                # 定义 JSON 底稿的路径
                 json_name = f"{input_mkv.stem}_alignment.json"
                 json_path = BASE_DIR / json_name
 
@@ -59,50 +107,27 @@ def process_queue():
                         print(f"⏩ 检测到遗留的 JSON 底稿 {json_name}")
                         print("⏩ 已自动跳过第一阶段(语音识别)，直接恢复进度！")
                     else:
-                        # 只有 JSON 不存在时，才去压榨 5070 Ti 跑提取和对齐
-                        print("--> 步骤 1/2: Demucs 人声提取与时间轴对齐 (压榨 5070 Ti 中...)")
+                        print(f"--> [独占显卡] 压榨 5070 Ti 提取对齐中...")
                         try:
                             subprocess.run([str(ENV_PYTHON), "last_alignment.py", str(input_mkv)], cwd=BASE_DIR, check=True)
                         except subprocess.CalledProcessError as e:
-                            # 拦截 Windows 下模型显存释放时的常见崩溃
-                            print(f"\n⚠️ 捕获到模型退出错误码: {e.returncode} (底层显存释放特性)")
-                            print("👉 正在检查 JSON 底稿是否幸存...")
-                        
+                            print(f"⚠️ 捕获到模型退出错误码: {e.returncode} (显存释放特性)")
+                            
                         if not json_path.exists():
-                            print(f"❌ 致命错误：未找到生成的 JSON 底稿 {json_path}，已跳过该集。")
+                            print(f"❌ 致命错误：未生成 JSON。")
                             continue
-                        print("✅ 底稿生成成功！进入翻译阶段...")
-
-                    # ==========================================
-                    # 步骤 2：调用翻译脚本
-                    # ==========================================
-                    print("--> 步骤 2/2: DeepSeek 注入灵魂翻译中...")
-                    subprocess.run([str(ENV_PYTHON), "llm_translation.py", str(json_path)], cwd=BASE_DIR, check=True)
+                            
+                    print(f"📦 底稿就绪！把 {rel_path.name} 一脚踹进后台 API 线程池！")
                     
-                    # 步骤 3：整理结构与垃圾回收
-                    print("--> 步骤 3/3: 还原目录结构与清理缓存空间...")
-                    expected_output_ass.parent.mkdir(parents=True, exist_ok=True)
-                    
-                    generated_ass = BASE_DIR / f"{input_mkv.stem}_bilingual.ass"
-                    if generated_ass.exists():
-                        shutil.move(str(generated_ass), str(expected_output_ass))
-                        print(f"🎉 大获全胜! 完美双语字幕已送达: {expected_output_ass}")
-                        
-                    # 【核心垃圾回收】只有走到这一步（大模型翻译成功了），才允许删除 JSON
-                    if json_path.exists():
-                        json_path.unlink()
-                        
-                    vocals_dir = BASE_DIR / "separated" / "htdemucs" / input_mkv.stem
-                    if vocals_dir.exists():
-                        shutil.rmtree(vocals_dir)
-                        
-                except subprocess.CalledProcessError as e:
-                    print(f"💥 处理时发生严重错误，已跳过该集。报错信息: {e}")
+                    # 🌟 核心魔法：把文件加入雷达，丢进后台线程池，然后 GPU 立刻去处理下一个文件！
+                    active_api_tasks.add(input_mkv)
+                    api_thread_pool.submit(background_translation_task, json_path, input_mkv, expected_output_ass)
                 except Exception as e:
                     print(f"💥 发生未知错误: {e}")
 
 if __name__ == "__main__":
-    print(f"👀 自动化巡逻监听已启动 (已开启断点续传保护)!")
+    print(f"👀 异步并发巡逻监听已启动 (并行消费者模式, 永不关机)!")
+    print(f"⚙️ 当前最大 API 并发数: {MAX_API_WORKERS}")
     print(f"📥 监听目录: {INPUT_DIR}")
     print(f"📤 输出目录: {OUTPUT_DIR}")
     print("--------------------------------------------------")
@@ -112,9 +137,15 @@ if __name__ == "__main__":
     
     while True:
         try:
-            process_queue()
+            pending = get_pending_tasks()
+            
+            if pending > 0:
+                process_queue()
+            else:
+                pass # 这个版本不需要全部完成后的关机大结局，保持无限监听
         except KeyboardInterrupt:
             print("\n监听已手动停止。")
+            api_thread_pool.shutdown(wait=False)
             break
         except Exception as e:
             print(f"主监听循环异常: {e}")
