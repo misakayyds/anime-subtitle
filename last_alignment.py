@@ -56,21 +56,35 @@ class AlignmentEngine:
         self.load_model()
         
         # 极度严苛的 VAD 参数，只要停顿 0.4 秒直接物理砍断
-        result_sub = self.model.transcribe_stable(
-            str(vocals_path), 
-            language='ja', 
-            vad=True, 
-            vad_threshold=0.2,  # 保持 0.2，拯救“Kimo”等微弱发音
+        try:
+            result_sub = self.model.transcribe(
+                str(vocals_path), 
+                language='ja', 
+                vad_filter=True, # 使用最新版本 faster_whisper 的 VAD 标准参数命名
+                vad_parameters=dict(threshold=0.35), # 把所有 VAD 细节打包成官方支持的字典格式
+                # ✨ 开启词级时间戳
+            word_timestamps=True,
+            # 防幻觉三板斧：
             condition_on_previous_text=False,
-            # 👈 换成这条“万能 ACG 催眠咒语”
-            initial_prompt="以下はアニメのセリフです。日常会話をはじめ、「キモい」「クソ」「放せ」「待て」などの砕けた口語表現や命令形、ため息、戦闘時の叫び声などが含まれます。" 
-        )
+            # 1. 遇到置信度极低的“假嗓音”，坚决判定为无声
+            no_speech_threshold=0.6,
+            # 2. 惩罚模型胡编乱造的长篇章（特别是前奏/片尾）
+            compression_ratio_threshold=2.4,
+            # 3. 适当给个初始提示，但不用太长以免引起复读
+                initial_prompt="以下はアニメのセリフです。"
+            )
+        except Exception as e:
+            print(f"⚠️ 模型转写发生异常: {str(e)}")
+            return False
         
-        # 3. 魔法切词
-        print("第三阶段：正在进行物理强制切词...")
+        # 3. 魔法切词与时间轴精修
+        print("第三阶段：基于词级时间戳进行物理强制切词...")
+        # 遇到各种日文常见句号/感叹号才切，保持句子完整性
         result_sub.split_by_punctuation([('。', ' '), ('！', ' '), ('？', ' '), ('!', ' '), ('?', ' ')])
-        result_sub.split_by_length(max_chars=22)
-        result_sub.split_by_gap(max_gap=0.5)
+        # 适当放宽最大字符，避免正常的长复句被生硬切断（原来是22，太短了容易断句）
+        result_sub.split_by_length(max_chars=32)
+        # 将停顿间隙检测恢复为稍长的 0.8s，防止说话慢、没情绪的角色一句话被切成好几段碎词
+        result_sub.split_by_gap(max_gap=0.8)
         
         # 4. 动态导出 JSON
         final_subs = {}

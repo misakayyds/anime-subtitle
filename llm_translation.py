@@ -4,7 +4,8 @@ import json
 import time
 from pathlib import Path
 from datetime import timedelta
-from openai import OpenAI
+import asyncio
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -49,11 +50,7 @@ def generate_ass_file(translated_data, output_path):
             # 1. 强制延长消失时间（视觉残留）
             end_sec += 0.4 
             
-            # 2. 最低阅读时间保障（保底 1.5 秒）
-            if (end_sec - start_sec) < 1.5:
-                end_sec = start_sec + 1.5
-                
-            # 🚀 3. 终极防碰撞雷达（解决你的担忧）
+            # 🚀 2. 终极防碰撞雷达
             if i + 1 < len(items):
                 # 偷看下一句的数据
                 _, next_item_data = items[i+1]
@@ -61,21 +58,30 @@ def generate_ass_file(translated_data, output_path):
                 
                 # 如果我延长的结束时间，侵犯到了下一句的开始时间
                 if end_sec > next_start_sec:
-                    # 强行把我的结束时间“砍”到下一句开始前 0.05 秒（留出极其微小的闪烁间隔，防止黏连）
-                    end_sec = next_start_sec - 0.05
+                    # 优先给当前句子保留基础时间，不能无限砍
+                    ideal_end = next_start_sec - 0.05
+                    # 容错：如果把结束时间砍得比开始时间还早（比如两条字幕被识别成同时说话），强行赋予至少 0.5s 显示时间
+                    if ideal_end <= start_sec:
+                        end_sec = start_sec + 0.5
+                    else:
+                        end_sec = ideal_end
             
+            # 3. 最低阅读时间保障（经过防碰撞梳理后再做最低保障，避免无限堆叠）
+            if (end_sec - start_sec) < 1.0:
+                # 只在不严重侵犯下一句的前提下延长
+                if i + 1 < len(items) and (start_sec + 1.0) <= items[i+1][1]['start']:
+                     end_sec = start_sec + 1.0
+                elif i + 1 == len(items):
+                     end_sec = start_sec + 1.0
+                     
             # 重新计算最终的 duration 用于异常拦截
             duration = end_sec - start_sec
             
             # 异常超长轴物理截断
             if duration > 4.5 and len(ja_text) <= 3:
                 continue
-            if duration > 6.0:
+            if duration > 7.0:
                 end_sec = start_sec + 4.0
-            
-            # 为了防止上面砍得太狠导致 end_sec 小于 start_sec 的极端情况保底
-            if end_sec <= start_sec:
-                end_sec = start_sec + 0.1
 
             start_time = seconds_to_ass_time(start_sec)
             end_time = seconds_to_ass_time(end_sec)
@@ -83,7 +89,7 @@ def generate_ass_file(translated_data, output_path):
             ass_text = f"{zh_text}\\N{{\\fs45}}{ja_text}"
             f.write(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{ass_text}\n")
 
-def main(input_json_path, expected_output_ass=None):
+async def main(input_json_path, expected_output_ass=None):
     json_file = Path(input_json_path)
     
     if expected_output_ass:
@@ -108,7 +114,7 @@ def main(input_json_path, expected_output_ass=None):
         print("\n❌ 致命错误：未找到有效的 DeepSeek API Key！")
         print("💡 请确保项目根目录下存在 `.env` 文件，并正确填写了 DEEPSEEK_API_KEY。")
         sys.exit(1)
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     # 动态提取当前处理的文件名
     current_file_name = Path(input_json_path).stem 
 
@@ -147,49 +153,111 @@ ASR在遇到纯BGM或静音时会产生“幻觉”，凭空捏造出诸如“�
 1. 日文纠错：修复同音字、神级还原世界观专属生造词与咒语。
 2. 中文神级精翻：彻底消除机器味！确保专有名词100%原汁原味！
 
+【上下文参考 (仅供参考连贯性，**绝对不要**把它包含在你的翻译返回结果中)】
+[CONTEXT_PLACEHOLDER]
+
 必须以严格的 JSON 格式返回，键名为传入的绝对 ID。
 返回示例: {{"1": {{"ja_corrected": "修正后的日文", "zh_translated": "中文翻译"}}}}"""
 
     all_translated = {}
-    print(f"开始注入灵魂，共 {len(chunks)} 个区块...")
     
+    # 获取环境变量参数
+    api_workers_str = os.environ.get("MAX_API_WORKERS", "3")
+    try:
+        max_workers = int(api_workers_str)
+    except:
+        max_workers = 3
+        
+    print(f"🚀 开始超高速异步并发翻译（并发限制: {max_workers}）...")
+    
+    semaphore = asyncio.Semaphore(max_workers)
+    
+    async def process_chunk_async(idx, chunk, context_str):
+        print(f"⏳ [队列中] 区块 {idx+1}/{len(chunks)} 准备就绪...")
+        async with semaphore:
+            print(f"🚀 [处理中] 正在猛烈请求区块 {idx+1}/{len(chunks)}...")
+            chunk_dict = {item_id: item_data for item_id, item_data in chunk}
+            input_text = "\n".join([f"[ID: {item_id}] {item_data['ja_text']}" for item_id, item_data in chunk])
+            current_system_prompt = system_prompt.replace("[CONTEXT_PLACEHOLDER]", context_str)
+            
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = await client.chat.completions.create(
+                        model="deepseek-chat",
+                        messages=[
+                            {"role": "system", "content": current_system_prompt},
+                            {"role": "user", "content": input_text}
+                        ],
+                        response_format={"type": "json_object"},
+                        temperature=0.8,
+                        timeout=120.0  # 翻译大段落时间确实较长，改成120秒，防止正常工作被强行中断
+                    )
+                    
+                    content = response.choices[0].message.content
+                    # 强硬手段：防止大模型在格式外输出冗余字符串，或者强制去掉 ```json
+                    if content.startswith("```json"):
+                        content = content[7:]
+                    if content.endswith("```"):
+                        content = content[:-3]
+                        
+                    api_result = json.loads(content)
+                    
+                    # 校验：如果大模型返回的是空字典，视为幻觉失败，直接重试
+                    if not api_result:
+                        raise ValueError("API 返回了空字典的错误格式")
+                    
+                    print(f"✅ [成功] 区块 {idx+1}/{len(chunks)} 翻译完成！")
+                    
+                    for item_id, item_data in chunk_dict.items():
+                        if item_id in api_result:
+                            # 强化容错：有时候大模型会返回 null 或者没有对应的 key，统一转为字符串并剔除两端空白
+                            ja = str(api_result[item_id].get('ja_corrected') or '').strip()
+                            zh = str(api_result[item_id].get('zh_translated') or '').strip()
+                            
+                            # 终极修复：如果中文翻译强行返回空，且日文不为空，视为翻译失败，不能直接写空字符串
+                            if not zh and ja:
+                                item_data['ja_corrected'] = ja
+                                item_data['zh_translated'] = ja  # 如果死活不翻译，复制日语原文作为中文字幕，防止屏幕空缺
+                            else:
+                                item_data['ja_corrected'] = ja
+                                item_data['zh_translated'] = zh
+                        else:
+                            item_data['ja_corrected'] = item_data['ja_text']
+                            item_data['zh_translated'] = "【翻译漏句】"
+                    return chunk_dict
+                    
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ [警告] 区块 {idx+1}/{len(chunks)} 处理异常 ({str(e)})，正在进行第 {attempt+1} 次重试...")
+                        await asyncio.sleep(2 ** attempt) # 指数级退避重试，防止并发过高被拒绝
+                    else:
+                        print(f"❌ [崩溃降级] 区块 {idx+1}/{len(chunks)} 连续 {max_retries} 次处理失败: {str(e)}，降级保留原文。")
+                        for item_id, item_data in chunk_dict.items():
+                            item_data['ja_corrected'] = item_data['ja_text']
+                            item_data['zh_translated'] = "【API失败暂缺】"
+                        return chunk_dict
+
+    tasks = []
     for i, chunk in enumerate(chunks):
-        print(f"[{i+1}/{len(chunks)}] 正在请求 DeepSeek 翻译与纠错，请耐心等待...")
-        chunk_dict = {item_id: item_data for item_id, item_data in chunk}
-        
-        input_text = "\n".join([f"[ID: {item_id}] {item_data['ja_text']}" for item_id, item_data in chunk])
-        
-        try:
-            response = client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": input_text}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.8
-            )
+        if i == 0:
+            context_str = "（这是第一段，无前文）"
+        else:
+            previous_chunk = chunks[i-1]
+            last_4_items = previous_chunk[-4:]
+            context_lines = []
+            for item_id, item_data in last_4_items:
+                context_lines.append(f"[{item_id}] 刚刚讲过的话: {item_data['ja_text']}")
+            context_str = "\n".join(context_lines)
             
-            api_result = json.loads(response.choices[0].message.content)
-            
-            for item_id, item_data in chunk_dict.items():
-                if item_id in api_result:
-                    item_data['ja_corrected'] = api_result[item_id].get('ja_corrected', '')
-                    item_data['zh_translated'] = api_result[item_id].get('zh_translated', '')
-                else:
-                    item_data['ja_corrected'] = item_data['ja_text']
-                    item_data['zh_translated'] = "【翻译漏句】"
-                
-                all_translated[item_id] = item_data
-                
-        except Exception as e:
-            print(f"第 {i+1} 块处理崩溃: {str(e)}，已降级保留原文。")
-            for item_id, item_data in chunk_dict.items():
-                item_data['ja_corrected'] = item_data['ja_text']
-                item_data['zh_translated'] = "【API失败暂缺】"
-                all_translated[item_id] = item_data
-                
-        time.sleep(1) 
+        tasks.append(process_chunk_async(i, chunk, context_str))
+
+    # 并发执行所有块！
+    results = await asyncio.gather(*tasks)
+    
+    # 按照顺序合并全部回调结果
+    for chunk_res in results:
+        all_translated.update(chunk_res)
         
     print(f"生成 ASS 完美双语字幕文件中...")
     generate_ass_file(all_translated, output_ass_path)
@@ -206,6 +274,6 @@ if __name__ == "__main__":
         sys.exit(1)
         
     if len(sys.argv) == 3:
-        main(input_file, sys.argv[2])
+        asyncio.run(main(input_file, sys.argv[2]))
     else:
-        main(input_file)
+        asyncio.run(main(input_file))
