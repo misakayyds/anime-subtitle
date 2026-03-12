@@ -83,12 +83,15 @@ def generate_ass_file(translated_data, output_path):
             ass_text = f"{zh_text}\\N{{\\fs45}}{ja_text}"
             f.write(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{ass_text}\n")
 
-def main(input_json_path):
+def main(input_json_path, expected_output_ass=None):
     json_file = Path(input_json_path)
     
-    # 动态生成输出文件名：把 "234_alignment.json" 变成 "234_bilingual.ass"
-    base_name = json_file.stem.replace("_alignment", "")
-    output_ass_path = f"{base_name}_bilingual.ass"
+    if expected_output_ass:
+        output_ass_path = str(expected_output_ass)
+    else:
+        # 动态生成输出文件名：把 "234_alignment.json" 变成 "234_bilingual.ass"
+        base_name = json_file.stem.replace("_alignment", "")
+        output_ass_path = str(json_file.with_name(f"{base_name}_bilingual.ass"))
 
     print(f"正在读取原轴数据: {input_json_path}")
     with open(input_json_path, 'r', encoding='utf-8') as f:
@@ -193,8 +196,8 @@ ASR在遇到纯BGM或静音时会产生“幻觉”，凭空捏造出诸如“�
     print(f"✅ 大功告成！双语字幕已保存为: {output_ass_path}")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("使用方法: python llm_translation.py <JSON文件路径>")
+    if len(sys.argv) not in (2, 3):
+        print("使用方法: python llm_translation.py <JSON文件路径> [可选: 输出ASS文件路径]")
         sys.exit(1)
     
     input_file = sys.argv[1]
@@ -202,4 +205,7 @@ if __name__ == "__main__":
         print(f"错误: 找不到文件 {input_file}")
         sys.exit(1)
         
-    main(input_file)
+    if len(sys.argv) == 3:
+        main(input_file, sys.argv[2])
+    else:
+        main(input_file)

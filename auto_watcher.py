@@ -64,14 +64,12 @@ def background_translation_task(json_path, input_mkv, expected_output_ass):
     """【后台消费者】专门负责在后台悄悄请求大模型和清理垃圾，绝对不阻塞 GPU"""
     try:
         print(f"🚀 [后台分发] 正在为 {input_mkv.name} 并发请求 DeepSeek...")
-        subprocess.run([str(ENV_PYTHON), "llm_translation.py", str(json_path)], cwd=BASE_DIR, check=True)
         
-        expected_output_ass.parent.mkdir(parents=True, exist_ok=True)
-        generated_ass = BASE_DIR / f"{input_mkv.stem}_bilingual.ass"
+        # 强制传参让最终字幕直接生成在 expected_output_ass
+        subprocess.run([str(ENV_PYTHON), "llm_translation.py", str(json_path), str(expected_output_ass)], cwd=BASE_DIR, check=True)
         
-        if generated_ass.exists():
-            shutil.move(str(generated_ass), str(expected_output_ass))
-            print(f"🎉 [后台大捷] {input_mkv.name} 的完美字幕已送达！")
+        if expected_output_ass.exists():
+            print(f"🎉 [后台大捷] {input_mkv.name} 的完美字幕已直接送达: {expected_output_ass}")
             
         # 垃圾回收
         if json_path.exists():
@@ -111,10 +109,10 @@ def process_queue():
                     
                 print(f"\n" + "="*50)
                 print(f"🎯 [前台 GPU 锁定目标] {rel_path.name}")
-                print("="*50)
-                
+                # 定义 JSON 底稿的路径（直接放置到对应的 Output 目录中！）
+                expected_output_ass.parent.mkdir(parents=True, exist_ok=True)
                 json_name = f"{input_mkv.stem}_alignment.json"
-                json_path = BASE_DIR / json_name
+                json_path = expected_output_ass.with_name(json_name)
 
                 try:
                     # 🛑 第二道安检（断点续传）：检查 JSON 是否已经存在
@@ -125,7 +123,7 @@ def process_queue():
                         print(f"--> [独占显卡] 压榨 5070 Ti 提取对齐中...")
                         try:
                             # 🚀 [优化点] 告别每次开子进程加载模型，直接调用进程内常驻引擎，极大节省加载时间
-                            success = alignment_engine.perform_ultimate_alignment(input_mkv)
+                            success = alignment_engine.perform_ultimate_alignment(input_mkv, str(json_path))
                             if not success:
                                 print(f"⚠️ 模型提取遭遇异常返回。")
                         except Exception as e:

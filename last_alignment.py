@@ -27,7 +27,7 @@ class AlignmentEngine:
             torch.cuda.empty_cache()
         print("✅ 当前集数据已清空，显存碎片已整理！")
 
-    def perform_ultimate_alignment(self, video_path):
+    def perform_ultimate_alignment(self, video_path, expected_json_path=None):
         video_file = Path(video_path)
         video_name = video_file.stem # 自动获取视频名字，比如 "234"
         
@@ -90,10 +90,10 @@ class AlignmentEngine:
             }
             sub_id += 1
             
-        output_path = f"{video_name}_alignment.json"
-        
-        # [优化点] 为了防止显存驻留时，这些超大的 Python 对象累积，主动切断引用关系
-        del result_sub
+        if expected_json_path:
+            output_path = expected_json_path
+        else:
+            output_path = f"{video_name}_alignment.json"
         
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(final_subs, f, ensure_ascii=False, indent=4)
