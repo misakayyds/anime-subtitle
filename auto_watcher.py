@@ -4,8 +4,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-# 基础目录配置
-BASE_DIR = Path(r"F:\AnimeTranslator")
+# 基础目录配置 (动态获取当前脚本所在目录)
+BASE_DIR = Path(__file__).resolve().parent
 INPUT_DIR = BASE_DIR / "Input"
 OUTPUT_DIR = BASE_DIR / "Output"
 ENV_PYTHON = BASE_DIR / "env" / "Scripts" / "python.exe"
