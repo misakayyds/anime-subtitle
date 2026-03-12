@@ -57,34 +57,30 @@ class AlignmentEngine:
         
         # 极度严苛的 VAD 参数，只要停顿 0.4 秒直接物理砍断
         try:
+            # 回归 Whisper 大模型最强原生态：开启前后文推断，降低阈值防吞音
             result_sub = self.model.transcribe(
                 str(vocals_path), 
                 language='ja', 
-                vad_filter=True, # 使用最新版本 faster_whisper 的 VAD 标准参数命名
-                vad_parameters=dict(threshold=0.35), # 把所有 VAD 细节打包成官方支持的字典格式
-                # ✨ 开启词级时间戳
-            word_timestamps=True,
-            # 防幻觉三板斧：
-            condition_on_previous_text=False,
-            # 1. 遇到置信度极低的“假嗓音”，坚决判定为无声
-            no_speech_threshold=0.6,
-            # 2. 惩罚模型胡编乱造的长篇章（特别是前奏/片尾）
-            compression_ratio_threshold=2.4,
-            # 3. 适当给个初始提示，但不用太长以免引起复读
-                initial_prompt="以下はアニメのセリフです。"
+                beam_size=5,
+                vad_filter=True, 
+                # 进一步降低阈值和时间：只抛弃真正的绝对死寂，哪怕只有 0.02 秒的破音/打岔/惊呼也要留下来
+                vad_parameters=dict(min_speech_duration_ms=20, threshold=0.1), 
+                # 开启前后文联系：不仅防漏句，还能让 Whisper 根据上一句推测当前这句极大声却含糊不清的台词是什么
+                condition_on_previous_text=True, 
+                no_speech_threshold=0.6,
+                initial_prompt="以下はアニメのセリフです。話し声が少しでもあれば絶対に出力してください。「あ」「えっ」「うわっ」などの短い叫び声や感嘆詞も漏らさず文字起ししてください。" 
             )
         except Exception as e:
             print(f"⚠️ 模型转写发生异常: {str(e)}")
             return False
         
         # 3. 魔法切词与时间轴精修
-        print("第三阶段：基于词级时间戳进行物理强制切词...")
+        print("第三阶段：正在进行物理强制切词...")
         # 遇到各种日文常见句号/感叹号才切，保持句子完整性
         result_sub.split_by_punctuation([('。', ' '), ('！', ' '), ('？', ' '), ('!', ' '), ('?', ' ')])
-        # 适当放宽最大字符，避免正常的长复句被生硬切断（原来是22，太短了容易断句）
-        result_sub.split_by_length(max_chars=32)
-        # 将停顿间隙检测恢复为稍长的 0.8s，防止说话慢、没情绪的角色一句话被切成好几段碎词
-        result_sub.split_by_gap(max_gap=0.8)
+        # 恢复物理切分，由于关掉了不稳定的词级时间戳，这里以 Whisper 原始大段落为准进行切分防重叠
+        result_sub.split_by_length(max_chars=22)
+        result_sub.split_by_gap(max_gap=0.5)
         
         # 4. 动态导出 JSON
         final_subs = {}
