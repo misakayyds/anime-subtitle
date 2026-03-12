@@ -4,6 +4,12 @@ import shutil
 import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from dotenv import load_dotenv
+
+from last_alignment import AlignmentEngine
+
+# 加载环境变量
+load_dotenv()
 
 # 基础目录配置 (动态获取当前脚本所在目录)
 BASE_DIR = Path(__file__).resolve().parent
@@ -15,12 +21,19 @@ INPUT_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # ⚙️ 核心并发控制台
-# 允许后台同时向 DeepSeek 发起几个视频的翻译请求？（推荐 3-5，太高会被 API 官方限流报错）
-MAX_API_WORKERS = 3
+# 允许后台同时向 DeepSeek 发起几个视频的翻译请求？（默认 3）
+MAX_API_WORKERS = int(os.environ.get("MAX_API_WORKERS", 3))
+
+# 引擎常驻显存配置（默认 3）
+ALIGNMENT_BATCH_SIZE = int(os.environ.get("ALIGNMENT_BATCH_SIZE", 3))
 
 # 线程池与任务雷达（防止重复派发任务）
 api_thread_pool = ThreadPoolExecutor(max_workers=MAX_API_WORKERS)
 active_api_tasks = set()
+
+# 全局显卡翻译引擎（保持单例加载）
+alignment_engine = AlignmentEngine()
+episodes_processed_since_last_unload = 0
 
 def is_file_ready(filepath):
     try:
@@ -71,6 +84,8 @@ def background_translation_task(json_path, input_mkv, expected_output_ass):
             active_api_tasks.remove(input_mkv)
 
 def process_queue():
+    global episodes_processed_since_last_unload
+    
     """【前台生产者】GPU 专属通道，只负责干力气活，干完就扔给后台"""
     for root, _, files in os.walk(INPUT_DIR):
         for file in files:
@@ -103,9 +118,12 @@ def process_queue():
                 else:
                     print(f"--> [独占显卡] 压榨 5070 Ti 提取对齐中...")
                     try:
-                        subprocess.run([str(ENV_PYTHON), "last_alignment.py", str(input_mkv)], cwd=BASE_DIR, check=True)
-                    except subprocess.CalledProcessError as e:
-                        print(f"⚠️ 捕获到模型退出错误码: {e.returncode} (显存释放特性)")
+                        # 🚀 [优化点] 告别每次开子进程加载模型，直接调用进程内常驻引擎，极大节省加载时间
+                        success = alignment_engine.perform_ultimate_alignment(input_mkv)
+                        if not success:
+                            print(f"⚠️ 模型提取遭遇异常返回。")
+                    except Exception as e:
+                        print(f"⚠️ 捕获到模型运行时致命异常: {e}")
                         
                     if not json_path.exists():
                         print(f"❌ 致命错误：未生成 JSON。")
@@ -116,6 +134,13 @@ def process_queue():
                 # 🌟 核心魔法：把文件加入雷达，丢进后台线程池，然后 GPU 立刻去处理下一个文件！
                 active_api_tasks.add(input_mkv)
                 api_thread_pool.submit(background_translation_task, json_path, input_mkv, expected_output_ass)
+                
+                # [优化点] 显存垃圾回收机制
+                episodes_processed_since_last_unload += 1
+                if episodes_processed_since_last_unload >= ALIGNMENT_BATCH_SIZE:
+                    print(f"\n🔄 已连续处理 {episodes_processed_since_last_unload} 集，触发定期显存清理机制。")
+                    alignment_engine.clear_vram_cache()
+                    episodes_processed_since_last_unload = 0
 
 if __name__ == "__main__":
     print(f"👀 异步流水线监听已启动 (并行消费者模式)!")
@@ -140,6 +165,9 @@ if __name__ == "__main__":
                     # 优雅关闭：卡在这里等所有后台 API 请求完成，绝不提前关机
                     api_thread_pool.shutdown(wait=True)
                     
+                    # 彻底打扫战场
+                    alignment_engine.clear_vram_cache()
+                    
                     print("✅ 所有后台字幕均已成功生成！准备执行自动关机程序！")
                     print("💡 【后悔药】按下 Win+R，输入 shutdown /a 取消关机！")
                     print("="*50 + "\n")
@@ -148,7 +176,8 @@ if __name__ == "__main__":
                     break
                     
         except KeyboardInterrupt:
-            print("\n监听已手动停止。")
+            print("\n监听已手动停止。正在清理后台与显存...")
+            alignment_engine.clear_vram_cache()
             api_thread_pool.shutdown(wait=False)
             break
         except Exception as e:
