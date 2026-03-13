@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "animetranslator"
 version = "1.0.0"
-description = "动漫智能机翻/校对工具 - 探照灯与禁飞区四阶段管线"
+description = "动漫智能机翻/校对工具 - 音韵炼金术四阶段管线"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"

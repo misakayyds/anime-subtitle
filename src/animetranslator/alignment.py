@@ -1,11 +1,11 @@
 """
 AnimeTranslator 对齐引擎
 
-四阶段管线:
-1. SenseVoice 全局雷达粗扫 (fsmn-vad + SenseVoice)
-2. 划定 Whisper 禁飞区 (OP/ED + 纯音乐过滤)
-3. Whisper 精确狙击 (内存张量切片)
-4. 终极质检 (no_speech_prob + compression_ratio)
+音韵炼金术四阶段管线:
+1. 感知共鸣 (fsmn-vad + SenseVoice 全局扫描)
+2. 分离杂质 (OP/ED + 纯音乐过滤)
+3. 提取精华 (Whisper 精确转写)
+4. 点石成金 (质检 + DeepSeek 翻译)
 """
 import os
 import json
@@ -159,43 +159,43 @@ class AlignmentEngine:
         print(f"   📡 雷达粗扫完成，共探测到 {len(fragments)} 个音频碎片。")
         return fragments
 
-    def _filter_no_fly_zones(self, fragments, audio_duration):
-        """第二阶段：划定 Whisper 禁飞区"""
-        print("🚧 第二阶段：划定 Whisper 禁飞区...")
+    def _separate_impurities(self, fragments, audio_duration):
+        """第二阶段：分离杂质"""
+        print("🚧 第二阶段：分离杂质...")
 
-        no_fly_zones = []
+        impurity_zones = []
 
         op_zone = self._detect_op_ed_zone(fragments, 0, OP_WINDOW_SEC)
         if op_zone:
-            no_fly_zones.append(op_zone)
-            print(f"   🎵 已锁定 OP 禁飞区: {op_zone[0]:.1f}s ~ {op_zone[1]:.1f}s")
+            impurity_zones.append(op_zone)
+            print(f"   🎵 已锁定 OP 杂质区域: {op_zone[0]:.1f}s ~ {op_zone[1]:.1f}s")
 
         ed_start = max(0, audio_duration - ED_WINDOW_SEC)
         ed_zone = self._detect_op_ed_zone(fragments, ed_start, audio_duration)
         if ed_zone:
-            no_fly_zones.append(ed_zone)
-            print(f"   🎵 已锁定 ED 禁飞区: {ed_zone[0]:.1f}s ~ {ed_zone[1]:.1f}s")
+            impurity_zones.append(ed_zone)
+            print(f"   🎵 已锁定 ED 杂质区域: {ed_zone[0]:.1f}s ~ {ed_zone[1]:.1f}s")
 
-        if not no_fly_zones:
-            print("   ℹ️ 未检测到 OP/ED 禁飞区。")
+        if not impurity_zones:
+            print("   ℹ️ 未检测到 OP/ED 杂质区域。")
 
         survivors = []
         dropped_music = 0
         dropped_oped = 0
 
         for frag in fragments:
-            in_no_fly = False
-            for zone_start, zone_end in no_fly_zones:
+            in_impurity = False
+            for zone_start, zone_end in impurity_zones:
                 if frag["start"] >= zone_start and frag["end"] <= zone_end:
-                    in_no_fly = True
+                    in_impurity = True
                     break
                 overlap_s = max(0, min(frag["end"], zone_end) - max(frag["start"], zone_start))
                 frag_dur = frag["end"] - frag["start"]
                 if frag_dur > 0 and overlap_s / frag_dur > 0.5:
-                    in_no_fly = True
+                    in_impurity = True
                     break
 
-            if in_no_fly:
+            if in_impurity:
                 dropped_oped += 1
                 continue
 
@@ -210,13 +210,13 @@ class AlignmentEngine:
 
             survivors.append(frag)
 
-        print(f"   🚧 过滤完成: 丢弃 OP/ED {dropped_oped} 片, "
+        print(f"   🚧 分离完成: 丢弃 OP/ED {dropped_oped} 片, "
               f"丢弃纯音乐 {dropped_music} 片, "
-              f"幸存 {len(survivors)} 片碎片。")
+              f"保留 {len(survivors)} 片精华。")
         return survivors
 
     def _detect_op_ed_zone(self, fragments, window_start, window_end):
-        """检测 OP/ED 禁飞区"""
+        """检测 OP/ED 杂质区域"""
         music_frags = []
         for frag in fragments:
             if frag["start"] >= window_start and frag["end"] <= window_end:
@@ -424,16 +424,16 @@ class AlignmentEngine:
             print(f"   ✅ 音频已加载到内存，时长 {audio_duration:.1f}s")
 
             fragments = self._sensevoice_scan(tmp_audio_path)
-            _progress(20, "📡 SenseVoice 粗扫完成")
+            _progress(20, "📡 感知共鸣完成")
 
-            survivors = self._filter_no_fly_zones(fragments, audio_duration)
-            _progress(30, "🚧 禁飞区划定完成")
+            survivors = self._separate_impurities(fragments, audio_duration)
+            _progress(30, "🚧 分离杂质完成")
 
             raw_segments = self._whisper_snipe(waveform, sr, survivors)
-            _progress(90, "🎯 Whisper 狙击完成")
+            _progress(90, "🎯 提取精华完成")
 
             final_segments = self._quality_check(raw_segments)
-            _progress(95, "🔬 质检完成")
+            _progress(95, "🔬 点石成金完成")
 
         except Exception as e:
             print(f"⚠️ 管线执行异常: {str(e)}")

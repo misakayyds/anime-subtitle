@@ -27,7 +27,7 @@ def main():
     """CLI 主入口"""
     parser = argparse.ArgumentParser(
         prog="animetranslator",
-        description="动漫智能机翻/校对工具 - 探照灯与禁飞区四阶段管线"
+        description="动漫智能机翻/校对工具 - 音韵炼金术四阶段管线"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

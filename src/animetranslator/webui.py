@@ -306,7 +306,7 @@ def build_ui():
         """
     ) as app:
 
-        gr.Markdown("# 🎬 AnimeTranslator WebUI\n**探照灯与禁飞区** — SenseVoice 雷达 → 禁飞区过滤 → Whisper 狙击 → DeepSeek 翻译")
+        gr.Markdown("# 🎬 AnimeTranslator WebUI\n**音韵炼金术** — 感知共鸣 → 分离杂质 → 提取精华 → 点石成金")
 
         with gr.Row():
             with gr.Column(scale=1):

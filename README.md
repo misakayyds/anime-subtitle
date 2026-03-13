@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-这是一个高自动化、低人工干预的动漫双语字幕（ASS）生成工具。项目整合了先进的语音活动检测（fsmn-vad）、音频事件分类（SenseVoice）、语音识别（Stable-Whisper）与大模型翻译纠错（DeepSeek API）技术，通过一套**"探照灯与禁飞区"**四阶段管线，将原始视频文件批量、极速地转化为带样式的高质量中日双语字幕。
+这是一个高自动化、低人工干预的动漫双语字幕（ASS）生成工具。项目整合了先进的语音活动检测（fsmn-vad）、音频事件分类（SenseVoice）、语音识别（Stable-Whisper）与大模型翻译纠错（DeepSeek API）技术，通过「音韵炼金术」四阶段管线，将原始视频文件批量、极速地转化为带样式的高质量中日双语字幕。
 
 ## 安装
 
@@ -133,29 +133,29 @@ animetranslator watch --shutdown
 3. 等待处理完成
 4. 在 `Output/` 目录获取双语 `.ass` 字幕文件
 
-## 核心架构：四阶段管线
+## 核心架构：音韵炼金术
 
 ```
 原声视频 MKV
     │
     ▼
-📡 第一阶段：SenseVoice 全局雷达粗扫
+📡 一阶·感知共鸣 (SenseVoice)
     │  fsmn-vad 精确测距 → 每个音频碎片的起止时间
     │  SenseVoice 标签识别 → BGM / Speech / MUSIC 分类
     │
     ▼
-🚧 第二阶段：划定 Whisper 禁飞区
+🚧 二阶·分离杂质 (过滤)
     │  OP/ED 连续性检测（85~95s 连续音乐标签 → 整块丢弃）
     │  纯音乐过滤（BGM/MUSIC 标签 + 无文字 → 丢弃）
     │
     ▼
-🎯 第三阶段：Whisper 精确狙击
+🎯 三阶·提取精华 (Whisper)
     │  张量切片（内存 Tensor Slicing，零磁盘 IO）
     │  逐碎片喂给 Stable-Whisper Large-v3
     │  智能断句 + 去重 + 呼吸废话过滤
     │
     ▼
-🔬 第四阶段：终极质检员
+🔬 四阶·点石成金 (质检 + 翻译)
     │  no_speech_prob > 0.7 → 丢弃（环境音伪装）
     │  compression_ratio > 2.8 → 丢弃（复读机幻觉）
     │
@@ -167,11 +167,11 @@ animetranslator watch --shutdown
 
 1. **SenseVoice 智能标签分类**：取代传统的 Demucs 人声分离，直接在原声上用 SenseVoice 打标签区分 BGM/Speech/MUSIC，保留完整语境，GPU 耗时从分钟级降至秒级。
 
-2. **OP/ED 禁飞区自动识别**：番剧特化功能，自动检测视频开头 5 分钟和结尾 5 分钟内的连续音乐段（85~95 秒），整块丢弃，彻底杜绝 Whisper 听译歌词。
+2. **OP/ED 杂质自动识别**：番剧特化功能，自动检测视频开头 5 分钟和结尾 5 分钟内的连续音乐段（85~95 秒），整块丢弃，彻底杜绝 Whisper 听译歌词。
 
 3. **内存张量切片零 IO**：音频波形一次加载到显存，后续所有碎片用 Tensor Slicing 直接切取，前后各加 0.3 秒 Padding 防止吞音，避免反复 ffmpeg 编解码。
 
-4. **四重过滤防幻觉**：SenseVoice 标签 → OP/ED 禁飞区 → Whisper no_speech_prob / compression_ratio 质检 → 呼吸废话正则过滤，层层拦截。
+4. **四重过滤防幻觉**：SenseVoice 标签 → OP/ED 杂质过滤 → Whisper no_speech_prob / compression_ratio 质检 → 呼吸废话正则过滤，层层拦截。
 
 5. **DeepSeek 上下文神级翻译**：
    - 根据发音推测并修正同音字、角色名、中二生造词与咒语等专有名词
