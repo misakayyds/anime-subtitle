@@ -1,7 +1,137 @@
 # AnimeTranslator 动漫智能机翻/校对工具
 
-## 简介
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+
 这是一个高自动化、低人工干预的动漫双语字幕（ASS）生成工具。项目整合了先进的语音活动检测（fsmn-vad）、音频事件分类（SenseVoice）、语音识别（Stable-Whisper）与大模型翻译纠错（DeepSeek API）技术，通过一套**"探照灯与禁飞区"**四阶段管线，将原始视频文件批量、极速地转化为带样式的高质量中日双语字幕。
+
+## 安装
+
+### 系统要求
+
+- Python 3.10+
+- NVIDIA GPU（推荐 RTX 3060 Ti 或同级以上）
+- CUDA 11.8+ 或 CUDA 12.x
+- **ffmpeg**（必须，用于音频提取）
+
+### 资源消耗
+
+| 资源 | 最小要求 | 推荐 |
+|------|---------|------|
+| 内存 (RAM) | 3 GB | 8 GB+ |
+| 显存 (VRAM) | 7 GB | 10 GB+ |
+| 硬盘 | 5 GB（模型 + 依赖） | 10 GB+ |
+
+> 实际消耗会根据视频长度和并发设置有所波动。
+
+### 安装步骤
+
+```bash
+# 1. Clone 项目
+git clone https://github.com/your-username/AnimeTranslator.git
+cd AnimeTranslator
+
+# 2. 创建虚拟环境
+python -m venv env
+
+# 3. 激活虚拟环境
+# Windows:
+env\Scripts\activate
+# Linux/Mac:
+source env/bin/activate
+
+# 4. 安装 PyTorch（根据您的 CUDA 版本选择）
+# CUDA 12.8:
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+# CUDA 12.1:
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+# CUDA 11.8:
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+# CPU only:
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# 5. 安装 AnimeTranslator
+pip install -e .
+
+# 6. 配置 API Key
+copy .env.example .env
+# 编辑 .env 文件，填入您的 DeepSeek API Key
+```
+
+### 安装 ffmpeg
+
+本项目依赖 ffmpeg 进行音频提取，请确保系统已安装。
+
+**Windows:**
+```bash
+# 方式一：使用 winget
+winget install ffmpeg
+
+# 方式二：使用 Chocolatey
+choco install ffmpeg
+
+# 方式三：手动下载
+# 从 https://www.gyan.dev/ffmpeg/builds/ 下载，解压后将 bin 目录添加到 PATH
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt update && sudo apt install ffmpeg
+```
+
+**macOS:**
+```bash
+brew install ffmpeg
+```
+
+**验证安装:**
+```bash
+ffmpeg -version
+```
+
+### 获取 DeepSeek API Key
+
+1. 访问 [DeepSeek 开放平台](https://platform.deepseek.com/)
+2. 注册并登录
+3. 在 API Keys 页面创建新的 API Key
+4. 将 API Key 填入 `.env` 文件的 `DEEPSEEK_API_KEY`
+
+## 使用方法
+
+### 方式一：WebUI（推荐）
+
+```bash
+# 确保在项目目录下，虚拟环境已激活
+animetranslator webui
+
+# 或使用 Python 模块方式
+python -m animetranslator webui
+
+# 自定义端口
+animetranslator webui --port 8080
+
+# 生成公网分享链接
+animetranslator webui --share
+```
+
+启动后在浏览器打开 http://127.0.0.1:7860
+
+### 方式二：后台看门狗
+
+```bash
+# 永久监听模式
+animetranslator watch
+
+# 自动关机模式（处理完成后 60 秒关机）
+animetranslator watch --shutdown
+```
+
+### 工作流程
+
+1. 将 `.mkv` 视频文件放入 `Input/` 目录（支持多层子文件夹）
+2. 运行 `animetranslator webui` 或 `animetranslator watch`
+3. 等待处理完成
+4. 在 `Output/` 目录获取双语 `.ass` 字幕文件
 
 ## 核心架构：四阶段管线
 
@@ -34,67 +164,153 @@
 ```
 
 ## 核心特性
+
 1. **SenseVoice 智能标签分类**：取代传统的 Demucs 人声分离，直接在原声上用 SenseVoice 打标签区分 BGM/Speech/MUSIC，保留完整语境，GPU 耗时从分钟级降至秒级。
+
 2. **OP/ED 禁飞区自动识别**：番剧特化功能，自动检测视频开头 5 分钟和结尾 5 分钟内的连续音乐段（85~95 秒），整块丢弃，彻底杜绝 Whisper 听译歌词。
+
 3. **内存张量切片零 IO**：音频波形一次加载到显存，后续所有碎片用 Tensor Slicing 直接切取，前后各加 0.3 秒 Padding 防止吞音，避免反复 ffmpeg 编解码。
+
 4. **四重过滤防幻觉**：SenseVoice 标签 → OP/ED 禁飞区 → Whisper no_speech_prob / compression_ratio 质检 → 呼吸废话正则过滤，层层拦截。
+
 5. **DeepSeek 上下文神级翻译**：
-    - 根据发音推测并修正同音字、角色名、中二生造词与咒语等专有名词。
-    - 结合动作、情绪甚至生理反应语境意译拟声词，保留剧本视觉梗，彻底消除生硬的"机器味"。
-    - 硬核判断并滤除 Whisper 常见的"感谢收看"、"请订阅"等幻觉输出。
+   - 根据发音推测并修正同音字、角色名、中二生造词与咒语等专有名词
+   - 结合动作、情绪甚至生理反应语境意译拟声词，保留剧本视觉梗
+   - 硬核判断并滤除 Whisper 常见的"感谢收看"、"请订阅"等幻觉输出
+
 6. **智能硬件与缓存调度**：
-   - 支持**动态位置挂靠**，无需修改由于挪走根目录而报红的代码参数。
-   - **三引擎常驻显存**：fsmn-vad + SenseVoice + Stable-Whisper 大模型无需逢剧必载，结合 `ALIGNMENT_BATCH_SIZE` 的定期显存清理策略，完美避开 OOM 幽灵 Bug。
-   - 全程产生的文件**100% 镜像复刻 Input 中的多层子文件夹**，保持项目根目录终极洁癖。
-7. **两套独立的前端（共享底层管线）**：
-   - **前端 A: 交互式 WebUI (`webui.py`)**：纯小白向操作，支持浏览器拖拽上传、可视化调整所有 `.env` 参数并热重载、实时查阅运行日志和字幕结果下载。
-   - **前端 B: 后台看门狗 (`auto_watcher.py` / `auto_shutdown_watcher.py`)**：适合自动化挂机，前线 GPU 无限处理切词，后方 API 线程池高并发翻译，支持断点续传。处理完后自动关机。
+   - 三引擎常驻显存：fsmn-vad + SenseVoice + Stable-Whisper 大模型无需逢剧必载
+   - 定期显存清理策略，完美避开 OOM 幽灵 Bug
 
-## 环境配置与依赖
-*   本工具依赖一块 NVIDIA GPU（推荐 RTX 5060 Ti 或同级以上）以支撑 SenseVoice / Stable-Whisper 大模型的本地运算（默认 `cuda` + `float16` 精度）。
-*   项目需将虚拟环境放置于工程根目录的 `env/` 下。
-*   要求在工程根目录下建有 `.env` 文件，并正确配置 DeepSeek API 令牌。
-*   首次运行时，FunASR 会自动从 ModelScope 下载 SenseVoice-Small 和 fsmn-vad 模型（约 1-2GB）。
+## 配置说明
 
-```bash
-# 核心依赖环境参考 (建议配合 Python 3.12 虚拟环境)
-pip install -r requirements.txt
+编辑项目根目录下的 `.env` 文件：
+
+```env
+# DeepSeek API 密钥配置（必填）
+DEEPSEEK_API_KEY=sk-xxxxxx
+
+# 异步并发大模型翻译任务数（建议 3-5）
+MAX_API_WORKERS=3
+
+# 引擎常驻显存配置（设置几集清理一次模型显存，建议 1-5）
+ALIGNMENT_BATCH_SIZE=3
+
+# 质检阈值（通常不需要修改）
+NO_SPEECH_PROB_THRESHOLD=0.7
+COMPRESSION_RATIO_THRESHOLD=2.8
 ```
 
 ## 目录结构
-*   `Input/`：输入目录，待处理的动漫视频（如 `.mkv` 格式）拷贝至此。
-*   `Output/`：输出目录，最终生成的中日双语字幕（`.ass` 格式）保存在此处。
-*   `webui.py`: **[新] 全新构建的浏览器 WebUI 主入口**（支持参数可视化调节和手动队列管理）。
-*   `auto_watcher.py`：支持 GPU 前台独占与 API 请求后台并发的主流水线程序（经典异步监控版）。
-*   `auto_shutdown_watcher.py`：带自动关机的无人值守挂机版。
-*   `last_alignment.py`：底稿/原轴生成核心逻辑（SenseVoice 雷达粗扫 → 禁飞区过滤 → Whisper 精确狙击 → 质检 → 导出 `_alignment.json` 底稿）。
-*   `llm_translation.py`：大模型翻译核心逻辑（读取 JSON 分块合并上下文 → DeepSeek API → 样式注入 `.ass` 文件）。
 
-## 使用流程
-1. 确保项目根目录下存在 `.env` 文件：
-   ```env
-   # DeepSeek API 密钥配置
-   DEEPSEEK_API_KEY=sk-xxxxxx
+```
+AnimeTranslator/
+├── pyproject.toml           # 打包配置
+├── README.md
+├── LICENSE
+├── .env.example             # 配置模板
+├── .gitignore
+├── requirements.txt         # 依赖参考
+├── src/
+│   └── animetranslator/     # 核心代码
+│       ├── __init__.py
+│       ├── __main__.py
+│       ├── cli.py           # CLI 入口
+│       ├── config.py        # 配置管理
+│       ├── alignment.py     # 对齐引擎
+│       ├── translation.py   # 翻译模块
+│       ├── watcher.py       # 后台看门狗
+│       └── webui.py         # WebUI 界面
+├── tests/
+├── Input/                   # 输入目录（待处理视频）
+├── Output/                  # 输出目录（生成的字幕）
+└── env/                     # 虚拟环境（用户创建）
+```
 
-   # 异步并发大模型翻译任务数（建议 3-5）
-   MAX_API_WORKERS=3
+## 常见问题
 
-   # 引擎常驻显存配置（设置几集清理一次模型显存，建议 1-5。设为 1 即每集清理）
-   ALIGNMENT_BATCH_SIZE=3
-   ```
-2. **启动方式（二选一即可，GPU 同一时间只能被一个霸占）：**
+### Q: 如何取消自动关机？
 
-   **方式 A：启动可视化 WebUI（推荐）**
-   ```bash
-   env\Scripts\python webui.py
-   # 启动后在浏览器打开 http://127.0.0.1:7860
-   ```
+在自动关机倒计时内，按下 `Win+R`，输入 `shutdown /a` 即可取消。
 
-   **方式 B：启动经典后台看门狗**
-   ```bash
-   env\Scripts\python auto_watcher.py
-   # 自动监控 Input/ 文件夹并静默处理
-   ```
+### Q: 首次运行很慢？
 
-3. 将 `.mkv` 文件拖入 WebUI，或手动拷贝至 `Input/` 文件夹。
-4. 喝杯咖啡。翻译完毕后，中日双语 `.ass` 字幕会出现在 `Output/` 或在 WebUI 直接下载。
+首次运行时，FunASR 会自动从 ModelScope 下载 SenseVoice-Small 和 fsmn-vad 模型（约 1-2GB），请耐心等待。
+
+### Q: 支持哪些视频格式？
+
+目前主要支持 `.mkv` 格式。如需其他格式，可先用 ffmpeg 转换。
+
+### Q: 如何查看处理进度？
+
+- WebUI 模式：在浏览器中查看实时日志
+- Watch 模式：在终端查看输出日志
+
+## 开发
+
+```bash
+# 安装开发依赖
+pip install -e ".[dev]"
+
+# 运行测试
+pytest tests/
+
+# 代码格式化
+black src/
+
+# 代码检查
+ruff check src/
+```
+
+## 后续计划
+
+### 1. 更多模型适配
+
+- [ ] **轻量级模型选项**：支持 Whisper Medium/Small，降低显存需求至 4GB
+- [ ] **其他 ASR 引擎**：集成 WhisperX、Moonshine 等备选方案
+- [ ] **多语言支持**：扩展到韩语、英语等其他语言的字幕生成
+
+### 2. 更多翻译 API 支持
+
+- [ ] **OpenAI GPT**：支持 GPT-4o、GPT-4-turbo 等模型
+- [ ] **Claude**：支持 Anthropic Claude 系列
+- [ ] **Google Gemini**：支持 Google 最新大模型
+- [ ] **通义千问**：支持阿里云 Qwen API
+- [ ] **智谱 GLM**：支持智谱 ChatGLM API
+- [ ] **OpenAI 兼容接口**：支持任意 OpenAI 兼容的 API 服务
+
+### 3. 本地 LLM 支持
+
+- [ ] **Ollama 集成**：支持通过 Ollama 运行本地模型
+- [ ] **llama.cpp**：支持 GGUF 格式的量化模型
+- [ ] **vLLM**：支持高性能本地推理
+- [ ] **推荐模型**：Qwen2.5、Llama3、GLM-4 等开源模型适配
+- [ ] **离线模式**：完全脱离网络运行的本地化方案
+
+### 4. AMD GPU 和 CPU 支持
+
+- [ ] **AMD GPU (ROCm)**：适配 AMD 显卡，支持 RX 6000/7000 系列
+- [ ] **纯 CPU 模式**：支持无显卡用户使用，速度换可用性
+- [ ] **Apple Silicon**：适配 M1/M2/M3 系列 GPU 加速
+- [ ] **混合推理**：部分模型走 GPU，部分走 CPU，优化资源利用
+
+### 5. 功能增强
+
+- [ ] WebUI 国际化（i18n）
+- [ ] Docker 一键部署
+- [ ] 更多视频格式支持（MP4、AVI、MOV 等）
+- [ ] 字幕编辑器：实时预览和手动修正
+- [ ] 批量处理进度追踪和断点续传优化
+
+欢迎提交 Issue 或 PR 参与贡献！
+
+## 许可证
+
+本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
+
+## 致谢
+
+- [FunASR](https://github.com/modelscope/FunASR) - SenseVoice 语音识别
+- [Stable-Whisper](https://github.com/jianfch/stable-ts) - Whisper 稳定版
+- [DeepSeek](https://www.deepseek.com/) - 大模型翻译
+- [Gradio](https://www.gradio.app/) - WebUI 框架

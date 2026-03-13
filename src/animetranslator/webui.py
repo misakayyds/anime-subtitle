@@ -1,17 +1,14 @@
 """
 AnimeTranslator WebUI — Gradio 前端
-独立于 auto_watcher.py，共享 AlignmentEngine + llm_translation 后端引擎。
+
+独立于 watcher，共享 AlignmentEngine + translation 后端引擎
 """
 import os
 import sys
 import io
-import json
 import shutil
 import threading
 import queue
-import time
-import asyncio
-import subprocess
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -19,27 +16,21 @@ from concurrent.futures import ThreadPoolExecutor
 import gradio as gr
 from dotenv import load_dotenv, set_key
 
-# 确保项目根目录
-BASE_DIR = Path(__file__).resolve().parent
-ENV_FILE = BASE_DIR / ".env"
-DEFAULT_INPUT_DIR = str(BASE_DIR / "Input")
-DEFAULT_OUTPUT_DIR = str(BASE_DIR / "Output")
-ENV_PYTHON = str(BASE_DIR / "env" / "Scripts" / "python.exe")
+from .config import (
+    INPUT_DIR, OUTPUT_DIR, ENV_FILE, ensure_dirs, load_env,
+    get_env, get_env_int, get_env_float
+)
+from .alignment import AlignmentEngine
+from .translation import run_translation
 
-# 加载环境变量
-load_dotenv(ENV_FILE)
-
-# 全局状态
 _log_queue = queue.Queue()
 _cancel_flag = threading.Event()
 _is_running = threading.Event()
-_engine = None  # 懒加载 AlignmentEngine
+_engine = None
 
 
-# ============================================================================
-# 日志捕获器：拦截 print() 输出重定向到 Gradio 日志框
-# ============================================================================
 class LogCapture(io.TextIOBase):
+    """日志捕获器：拦截 print() 输出重定向到 Gradio 日志框"""
     def __init__(self, log_queue, original_stdout):
         super().__init__()
         self.log_queue = log_queue
@@ -61,18 +52,15 @@ class LogCapture(io.TextIOBase):
         return self._stdout.fileno()
 
 
-# ============================================================================
-# .env 读写
-# ============================================================================
 def load_env_values():
     """从 .env 文件读取当前配置"""
-    load_dotenv(ENV_FILE, override=True)
+    load_env()
     return {
         "api_key": os.environ.get("DEEPSEEK_API_KEY", ""),
-        "max_workers": int(os.environ.get("MAX_API_WORKERS", 3)),
-        "batch_size": int(os.environ.get("ALIGNMENT_BATCH_SIZE", 3)),
-        "nsp_threshold": float(os.environ.get("NO_SPEECH_PROB_THRESHOLD", 0.7)),
-        "cr_threshold": float(os.environ.get("COMPRESSION_RATIO_THRESHOLD", 2.8)),
+        "max_workers": get_env_int("MAX_API_WORKERS", 3),
+        "batch_size": get_env_int("ALIGNMENT_BATCH_SIZE", 3),
+        "nsp_threshold": get_env_float("NO_SPEECH_PROB_THRESHOLD", 0.7),
+        "cr_threshold": get_env_float("COMPRESSION_RATIO_THRESHOLD", 2.8),
     }
 
 
@@ -80,14 +68,12 @@ def save_env_values(api_key, max_workers, batch_size, nsp_threshold, cr_threshol
     """保存配置到 .env 文件并热更新进程环境变量"""
     env_path = str(ENV_FILE)
 
-    # 写入 .env 文件
     set_key(env_path, "DEEPSEEK_API_KEY", api_key)
     set_key(env_path, "MAX_API_WORKERS", str(int(max_workers)))
     set_key(env_path, "ALIGNMENT_BATCH_SIZE", str(int(batch_size)))
     set_key(env_path, "NO_SPEECH_PROB_THRESHOLD", str(round(nsp_threshold, 2)))
     set_key(env_path, "COMPRESSION_RATIO_THRESHOLD", str(round(cr_threshold, 2)))
 
-    # 热更新当前进程环境变量
     os.environ["DEEPSEEK_API_KEY"] = api_key
     os.environ["MAX_API_WORKERS"] = str(int(max_workers))
     os.environ["ALIGNMENT_BATCH_SIZE"] = str(int(batch_size))
@@ -97,9 +83,6 @@ def save_env_values(api_key, max_workers, batch_size, nsp_threshold, cr_threshol
     return "✅ 配置已保存并热更新！"
 
 
-# ============================================================================
-# 文件扫描
-# ============================================================================
 def scan_files(input_dir, output_dir):
     """扫描输入输出目录，返回文件状态列表"""
     input_path = Path(input_dir)
@@ -139,12 +122,9 @@ def get_output_files(output_dir):
     if not output_path.exists():
         return []
     files = sorted(output_path.rglob("*.ass"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return [str(f) for f in files[:20]]  # 最多显示 20 个
+    return [str(f) for f in files[:20]]
 
 
-# ============================================================================
-# 文件上传处理
-# ============================================================================
 def handle_upload(files, input_dir):
     """将上传的文件存入输入目录"""
     input_path = Path(input_dir)
@@ -161,15 +141,11 @@ def handle_upload(files, input_dir):
     return msg
 
 
-# ============================================================================
-# 核心处理管线
-# ============================================================================
 def run_pipeline(input_dir, output_dir):
     """后台线程：执行完整的 对齐+翻译 管线"""
     global _engine
     original_stdout = sys.__stdout__
 
-    # 重定向 stdout 捕获日志
     sys.stdout = LogCapture(_log_queue, original_stdout)
 
     try:
@@ -177,47 +153,22 @@ def run_pipeline(input_dir, output_dir):
         _log_queue.put(f"🚀 WebUI 管线启动 @ {datetime.now().strftime('%H:%M:%S')}")
         _log_queue.put(f"📥 输入目录: {input_dir}")
         _log_queue.put(f"📤 输出目录: {output_dir}")
-        _log_queue.put(f"⚙️ 翻译并发数: {os.environ.get('MAX_API_WORKERS', 3)}")
+        _log_queue.put(f"⚙️ 翻译并发数: {get_env('MAX_API_WORKERS', '3')}")
         _log_queue.put("=" * 50)
 
-        # 懒加载引擎
-        from last_alignment import AlignmentEngine
         if _engine is None:
             _engine = AlignmentEngine()
 
-        # 初始化线程池和雷达
-        max_workers = int(os.environ.get("MAX_API_WORKERS", 3))
+        max_workers = get_env_int("MAX_API_WORKERS", 3)
         api_thread_pool = ThreadPoolExecutor(max_workers=max_workers)
         active_api_tasks = set()
 
         def background_translation_task(json_file_path, ass_file_path, file_name):
             try:
                 _log_queue.put(f"🚀 [后台分发] 开始翻译: {file_name}...")
-                run_env = os.environ.copy()
-                run_env["PYTHONIOENCODING"] = "utf-8"
+                run_translation(str(json_file_path), str(ass_file_path))
 
-                process = subprocess.Popen(
-                    [ENV_PYTHON, "llm_translation.py", str(json_file_path), str(ass_file_path)],
-                    cwd=str(BASE_DIR),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding='utf-8',
-                    errors='ignore',
-                    bufsize=1,
-                    env=run_env
-                )
-
-                for line in iter(process.stdout.readline, ''):
-                    if line.strip():
-                        # 前面加点缩进区分是后台线程的输出
-                        _log_queue.put(f"   [API] {line.strip()}")
-
-                process.wait()
-
-                if process.returncode != 0:
-                    _log_queue.put(f"⚠️ [后台崩溃] {file_name} 翻译异常，退出码: {process.returncode}")
-                elif ass_file_path.exists():
+                if ass_file_path.exists():
                     _log_queue.put(f"🎉 [后台大捷] 字幕已生成: {file_name}")
                     if json_file_path.exists():
                         json_file_path.unlink()
@@ -231,7 +182,6 @@ def run_pipeline(input_dir, output_dir):
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # 收集待处理文件
         pending = []
         for root, _, files in os.walk(input_path):
             for f in sorted(files):
@@ -260,7 +210,6 @@ def run_pipeline(input_dir, output_dir):
             json_name = f"{mkv.stem}_alignment.json"
             json_path = ass.with_name(json_name)
 
-            # --- GPU 对齐阶段 ---
             if json_path.exists():
                 _log_queue.put(f"⏩ 发现遗留 JSON 底稿，跳过对齐阶段。")
             else:
@@ -277,7 +226,6 @@ def run_pipeline(input_dir, output_dir):
                     _log_queue.put(f"❌ 对齐异常: {e}")
                     continue
 
-            # --- 深夜食堂：放入后台翻译 ---
             if _cancel_flag.is_set():
                 break
 
@@ -285,8 +233,7 @@ def run_pipeline(input_dir, output_dir):
             active_api_tasks.add(str(json_path))
             api_thread_pool.submit(background_translation_task, json_path, ass, rel.name)
 
-            # 定期清理显存
-            if (idx + 1) % int(os.environ.get("ALIGNMENT_BATCH_SIZE", 3)) == 0:
+            if (idx + 1) % get_env_int("ALIGNMENT_BATCH_SIZE", 3) == 0:
                 _log_queue.put(f"🔄 触发定期显存清理机制...")
                 _engine.clear_vram_cache()
 
@@ -296,10 +243,8 @@ def run_pipeline(input_dir, output_dir):
         else:
             _log_queue.put("🎉 所有前台 GPU 提取任务已清空！正在等待后台 DeepSeek 翻译收尾...")
 
-        # 优雅等待所有后台翻译任务完成
         api_thread_pool.shutdown(wait=True)
-        
-        # 彻底清理
+
         if _engine:
             _engine.clear_vram_cache()
 
@@ -348,10 +293,8 @@ def poll_logs(current_logs):
     return current_logs
 
 
-# ============================================================================
-# Gradio 界面构建
-# ============================================================================
 def build_ui():
+    """构建 Gradio 界面"""
     env = load_env_values()
 
     with gr.Blocks(
@@ -366,11 +309,10 @@ def build_ui():
         gr.Markdown("# 🎬 AnimeTranslator WebUI\n**探照灯与禁飞区** — SenseVoice 雷达 → 禁飞区过滤 → Whisper 狙击 → DeepSeek 翻译")
 
         with gr.Row():
-            # ================== 左侧面板 ==================
             with gr.Column(scale=1):
                 gr.Markdown("### 📁 目录设置")
-                input_dir = gr.Textbox(label="输入目录", value=DEFAULT_INPUT_DIR, interactive=True)
-                output_dir = gr.Textbox(label="输出目录", value=DEFAULT_OUTPUT_DIR, interactive=True)
+                input_dir = gr.Textbox(label="输入目录", value=str(INPUT_DIR), interactive=True)
+                output_dir = gr.Textbox(label="输出目录", value=str(OUTPUT_DIR), interactive=True)
 
                 gr.Markdown("### 📤 拖拽上传文件")
                 upload = gr.File(
@@ -397,7 +339,6 @@ def build_ui():
                     outputs=[save_status],
                 )
 
-            # ================== 右侧面板 ==================
             with gr.Column(scale=2):
                 gr.Markdown("### 🚀 处理控制")
                 with gr.Row():
@@ -423,7 +364,6 @@ def build_ui():
                     elem_classes=["log-box"],
                 )
 
-                # 定时轮询日志（每 1 秒）
                 timer = gr.Timer(value=1)
                 timer.tick(fn=poll_logs, inputs=[log_box], outputs=[log_box])
 
@@ -441,7 +381,6 @@ def build_ui():
                     outputs=[file_table],
                 )
 
-                # 上传文件处理
                 upload.upload(
                     fn=handle_upload,
                     inputs=[upload, input_dir],
@@ -465,21 +404,22 @@ def build_ui():
                     outputs=[download_list],
                 )
 
-        # 页面加载时自动刷新文件列表
         app.load(fn=scan_files, inputs=[input_dir, output_dir], outputs=[file_table])
 
     return app
 
 
-# ============================================================================
-# 入口
-# ============================================================================
-if __name__ == "__main__":
+def run_webui(port=7860, share=False):
+    """启动 WebUI"""
+    ensure_dirs()
     print("🎬 AnimeTranslator WebUI 正在启动...")
+    print(f"📁 项目根目录: {INPUT_DIR.parent}")
+    print(f"📥 输入目录: {INPUT_DIR}")
+    print(f"📤 输出目录: {OUTPUT_DIR}")
     app = build_ui()
     app.launch(
         server_name="0.0.0.0",
-        server_port=7860,
-        share=False,
+        server_port=port,
+        share=share,
         inbrowser=True,
     )

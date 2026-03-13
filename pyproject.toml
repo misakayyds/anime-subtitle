@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "animetranslator"
+version = "1.0.0"
+description = "动漫智能机翻/校对工具 - 探照灯与禁飞区四阶段管线"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "AnimeTranslator Team"}
+]
+keywords = ["anime", "subtitle", "translation", "whisper", "sensevoice", "deepseek"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+]
+
+dependencies = [
+    "gradio>=4.0.0",
+    "funasr==1.3.1",
+    "faster-whisper==1.2.1",
+    "openai>=1.0.0",
+    "stable-ts==2.19.1",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+animetranslator = "animetranslator.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/your-username/AnimeTranslator"
+Repository = "https://github.com/your-username/AnimeTranslator.git"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+animetranslator = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
