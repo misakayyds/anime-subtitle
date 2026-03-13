@@ -28,7 +28,7 @@
 
 ```bash
 # 1. Clone 项目
-git clone https://github.com/your-username/AnimeTranslator.git
+git clone https://github.com/misakayyds/anime-subtitle.git
 cd AnimeTranslator
 
 # 2. 创建虚拟环境
