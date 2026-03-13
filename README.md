@@ -46,12 +46,12 @@
    - 支持**动态位置挂靠**，无需修改由于挪走根目录而报红的代码参数。
    - **三引擎常驻显存**：fsmn-vad + SenseVoice + Stable-Whisper 大模型无需逢剧必载，结合 `ALIGNMENT_BATCH_SIZE` 的定期显存清理策略，完美避开 OOM 幽灵 Bug。
    - 全程产生的文件**100% 镜像复刻 Input 中的多层子文件夹**，保持项目根目录终极洁癖。
-7. **自动化异步处理流水线**：
-   - **长期待机永不关机版 (`auto_watcher.py`)**：前线 GPU 无限单例处理模型切词并生成底稿，后方 API 线程池高并发翻译，支持断点续传，跑完即休眠监听。
-   - **夜间无人值守版 (`auto_shutdown_watcher.py`)**：逻辑与前者相同，但任务队列清仓后将触发系统级倒数关机。
+7. **两套独立的前端（共享底层管线）**：
+   - **前端 A: 交互式 WebUI (`webui.py`)**：纯小白向操作，支持浏览器拖拽上传、可视化调整所有 `.env` 参数并热重载、实时查阅运行日志和字幕结果下载。
+   - **前端 B: 后台看门狗 (`auto_watcher.py` / `auto_shutdown_watcher.py`)**：适合自动化挂机，前线 GPU 无限处理切词，后方 API 线程池高并发翻译，支持断点续传。处理完后自动关机。
 
 ## 环境配置与依赖
-*   本工具依赖一块 NVIDIA GPU（推荐 RTX 5070 Ti 或同级以上）以支撑 SenseVoice / Stable-Whisper 大模型的本地运算（默认 `cuda` + `float16` 精度）。
+*   本工具依赖一块 NVIDIA GPU（推荐 RTX 5060 Ti 或同级以上）以支撑 SenseVoice / Stable-Whisper 大模型的本地运算（默认 `cuda` + `float16` 精度）。
 *   项目需将虚拟环境放置于工程根目录的 `env/` 下。
 *   要求在工程根目录下建有 `.env` 文件，并正确配置 DeepSeek API 令牌。
 *   首次运行时，FunASR 会自动从 ModelScope 下载 SenseVoice-Small 和 fsmn-vad 模型（约 1-2GB）。
@@ -64,7 +64,8 @@ pip install -r requirements.txt
 ## 目录结构
 *   `Input/`：输入目录，待处理的动漫视频（如 `.mkv` 格式）拷贝至此。
 *   `Output/`：输出目录，最终生成的中日双语字幕（`.ass` 格式）保存在此处。
-*   `auto_watcher.py`：支持 GPU 前台独占与 API 请求后台并发的主流水线程序（推荐）。
+*   `webui.py`: **[新] 全新构建的浏览器 WebUI 主入口**（支持参数可视化调节和手动队列管理）。
+*   `auto_watcher.py`：支持 GPU 前台独占与 API 请求后台并发的主流水线程序（经典异步监控版）。
 *   `auto_shutdown_watcher.py`：带自动关机的无人值守挂机版。
 *   `last_alignment.py`：底稿/原轴生成核心逻辑（SenseVoice 雷达粗扫 → 禁飞区过滤 → Whisper 精确狙击 → 质检 → 导出 `_alignment.json` 底稿）。
 *   `llm_translation.py`：大模型翻译核心逻辑（读取 JSON 分块合并上下文 → DeepSeek API → 样式注入 `.ass` 文件）。
@@ -81,10 +82,19 @@ pip install -r requirements.txt
    # 引擎常驻显存配置（设置几集清理一次模型显存，建议 1-5。设为 1 即每集清理）
    ALIGNMENT_BATCH_SIZE=3
    ```
-2. 启动脚本：
+2. **启动方式（二选一即可，GPU 同一时间只能被一个霸占）：**
+
+   **方式 A：启动可视化 WebUI（推荐）**
+   ```bash
+   env\Scripts\python webui.py
+   # 启动后在浏览器打开 http://127.0.0.1:7860
+   ```
+
+   **方式 B：启动经典后台看门狗**
    ```bash
    env\Scripts\python auto_watcher.py
-   # 或需要睡前挂机的：env\Scripts\python auto_shutdown_watcher.py
+   # 自动监控 Input/ 文件夹并静默处理
    ```
-3. 将 `.mkv` 文件（支持多层子文件夹）拷贝至 `Input/` 文件夹，程序通过文件尺寸心跳检测自动接管。
-4. 挂机享受。翻译完毕后，中日双语 `.ass` 字幕会出现在 `Output/` 对应目录下。
+
+3. 将 `.mkv` 文件拖入 WebUI，或手动拷贝至 `Input/` 文件夹。
+4. 喝杯咖啡。翻译完毕后，中日双语 `.ass` 字幕会出现在 `Output/` 或在 WebUI 直接下载。

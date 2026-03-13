@@ -34,9 +34,12 @@ ED_WINDOW_SEC = 5 * 60       # 结尾 5 分钟
 OP_ED_MIN_DURATION = 85      # OP/ED 最短持续时间（秒）
 OP_ED_MAX_DURATION = 95      # OP/ED 最长持续时间（秒）
 
-# 质检阈值（放宽以减少误杀真实台词）
-NO_SPEECH_PROB_THRESHOLD = 0.7
-COMPRESSION_RATIO_THRESHOLD = 2.8
+# 质检阈值（从环境变量读取，支持 WebUI 热更新）
+def _get_no_speech_threshold():
+    return float(os.environ.get("NO_SPEECH_PROB_THRESHOLD", 0.7))
+
+def _get_compression_threshold():
+    return float(os.environ.get("COMPRESSION_RATIO_THRESHOLD", 2.8))
 
 # 张量切片 padding（秒）
 SLICE_PADDING_SEC = 0.3
@@ -423,11 +426,11 @@ class AlignmentEngine:
             nsp = seg.get("_no_speech_prob", 0.0)
             cr = seg.get("_compression_ratio", 0.0)
 
-            if nsp > NO_SPEECH_PROB_THRESHOLD:
+            if nsp > _get_no_speech_threshold():
                 dropped_nsp += 1
                 continue
 
-            if cr > COMPRESSION_RATIO_THRESHOLD:
+            if cr > _get_compression_threshold():
                 dropped_cr += 1
                 continue
 
@@ -447,7 +450,11 @@ class AlignmentEngine:
     # ========================================================================
     # 主入口：perform_ultimate_alignment（接口不变）
     # ========================================================================
-    def perform_ultimate_alignment(self, video_path, expected_json_path=None):
+    def perform_ultimate_alignment(self, video_path, expected_json_path=None, progress_callback=None):
+        def _progress(pct, stage=""):
+            if progress_callback:
+                progress_callback(pct, stage)
+
         video_file = Path(video_path)
         video_name = video_file.stem
 
@@ -481,15 +488,19 @@ class AlignmentEngine:
 
             # === 第一阶段：SenseVoice 全局雷达粗扫 ===
             fragments = self._sensevoice_scan(tmp_audio_path)
+            _progress(20, "📡 SenseVoice 粗扫完成")
 
             # === 第二阶段：划定禁飞区 ===
             survivors = self._filter_no_fly_zones(fragments, audio_duration)
+            _progress(30, "🚧 禁飞区划定完成")
 
             # === 第三阶段：Whisper 精确狙击 ===
             raw_segments = self._whisper_snipe(waveform, sr, survivors)
+            _progress(90, "🎯 Whisper 狙击完成")
 
             # === 第四阶段：终极质检 ===
             final_segments = self._quality_check(raw_segments)
+            _progress(95, "🔬 质检完成")
 
         except Exception as e:
             print(f"⚠️ 管线执行异常: {str(e)}")
