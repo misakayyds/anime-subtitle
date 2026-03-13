@@ -74,9 +74,6 @@ def background_translation_task(json_path, input_mkv, expected_output_ass):
         # 垃圾回收
         if json_path.exists():
             json_path.unlink()
-        vocals_dir = BASE_DIR / "separated" / "htdemucs" / input_mkv.stem
-        if vocals_dir.exists():
-            shutil.rmtree(vocals_dir)
             
     except subprocess.CalledProcessError as e:
         print(f"💥 [后台崩溃] {input_mkv.name} API 翻译失败，已降级或中止。")

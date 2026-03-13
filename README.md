@@ -1,59 +1,90 @@
 # AnimeTranslator 动漫智能机翻/校对工具
 
 ## 简介
-这是一个高自动化、低人工干预的动漫双语字幕（ASS）生成工具。项目整合了先进的音频分离（Demucs）、语音识别（Stable-Whisper）与大模型翻译纠错（DeepSeek API）技术，旨在通过一套全自动监听式流水线，将原始的视频文件批量、极速地转化为带样式的高质量中日双语字幕。
+这是一个高自动化、低人工干预的动漫双语字幕（ASS）生成工具。项目整合了先进的语音活动检测（fsmn-vad）、音频事件分类（SenseVoice）、语音识别（Stable-Whisper）与大模型翻译纠错（DeepSeek API）技术，通过一套**"探照灯与禁飞区"**四阶段管线，将原始视频文件批量、极速地转化为带样式的高质量中日双语字幕。
+
+## 核心架构：四阶段管线
+
+```
+原声视频 MKV
+    │
+    ▼
+📡 第一阶段：SenseVoice 全局雷达粗扫
+    │  fsmn-vad 精确测距 → 每个音频碎片的起止时间
+    │  SenseVoice 标签识别 → BGM / Speech / MUSIC 分类
+    │
+    ▼
+🚧 第二阶段：划定 Whisper 禁飞区
+    │  OP/ED 连续性检测（85~95s 连续音乐标签 → 整块丢弃）
+    │  纯音乐过滤（BGM/MUSIC 标签 + 无文字 → 丢弃）
+    │
+    ▼
+🎯 第三阶段：Whisper 精确狙击
+    │  张量切片（内存 Tensor Slicing，零磁盘 IO）
+    │  逐碎片喂给 Stable-Whisper Large-v3
+    │  智能断句 + 去重 + 呼吸废话过滤
+    │
+    ▼
+🔬 第四阶段：终极质检员
+    │  no_speech_prob > 0.7 → 丢弃（环境音伪装）
+    │  compression_ratio > 2.8 → 丢弃（复读机幻觉）
+    │
+    ▼
+✅ 输出 _alignment.json 底稿 → DeepSeek 翻译 → 双语 ASS 字幕
+```
 
 ## 核心特性
-1. **多级过滤与人声提取**：自动调用 `htdemucs` 引擎将动画的音轨和纯人声分离，有效避免 BGM 及环境音对语音识别造成的干扰。
-2. **极速准确的原轴听写**：引入 `Stable-Whisper` 实现时间轴的精准对齐。支持 `vad=True` 的声学打断，配合严苛的长度（max_chars=22）与间断（0.5秒）物理切词，防止长字幕粘连。
-3. **针对二次元的识别矫正**：定制的 Whisper Initial Prompt 兼顾了动漫中各种随意的缩略语、语气词以改善最初始的音频识别率。
-4. **DeepSeek 上下文神级翻译**：
+1. **SenseVoice 智能标签分类**：取代传统的 Demucs 人声分离，直接在原声上用 SenseVoice 打标签区分 BGM/Speech/MUSIC，保留完整语境，GPU 耗时从分钟级降至秒级。
+2. **OP/ED 禁飞区自动识别**：番剧特化功能，自动检测视频开头 5 分钟和结尾 5 分钟内的连续音乐段（85~95 秒），整块丢弃，彻底杜绝 Whisper 听译歌词。
+3. **内存张量切片零 IO**：音频波形一次加载到显存，后续所有碎片用 Tensor Slicing 直接切取，前后各加 0.3 秒 Padding 防止吞音，避免反复 ffmpeg 编解码。
+4. **四重过滤防幻觉**：SenseVoice 标签 → OP/ED 禁飞区 → Whisper no_speech_prob / compression_ratio 质检 → 呼吸废话正则过滤，层层拦截。
+5. **DeepSeek 上下文神级翻译**：
     - 根据发音推测并修正同音字、角色名、中二生造词与咒语等专有名词。
-    - 结合动作、情绪甚至生理反应语境意译拟声词，保留剧本视觉梗，彻底消除生硬的“机器味”。
-    - 硬核判断并滤除 Whisper 常见的“感谢收看”、“请订阅”等幻觉输出。
-5. **智能硬件与缓存调度 (🔥 新特性)**：
+    - 结合动作、情绪甚至生理反应语境意译拟声词，保留剧本视觉梗，彻底消除生硬的"机器味"。
+    - 硬核判断并滤除 Whisper 常见的"感谢收看"、"请订阅"等幻觉输出。
+6. **智能硬件与缓存调度**：
    - 支持**动态位置挂靠**，无需修改由于挪走根目录而报红的代码参数。
-   - **VRAM 大模型模型常驻显存**：`Stable-Whisper` 大模型无需逢剧必载！不仅极大缩短同番剧下连续集的启动编译时间，并且结合 `ALIIGNMENT_BATCH_SIZE` 的 `gc.collect()` 级手动销毁内存碎片策略，完美避开了 Windows / PyTorch 长时挂机的 OOM 与 C++ 核心崩溃幽灵 Bug。 
-   - 全程产生的文件（无论是提取中间态的 `_alignment.json` 还是终极字幕文件）将**100%镜像复刻 Input 中建立的多层子文件夹**，保持了项目根目录以及缓存区的终极洁癖。
-6. **自动化异步处理流水线**：
-   - **长期待机永不关机版 (`auto_watcher.py`)**：前线 GPU 无限单例处理模型切词并生成底稿，后方 API 线程池高并发翻译，此版本不仅支持断点续传（通过寻找历史底稿起步），跑完当前集所有任务后更会立刻处于长期休眠监听状态，随时拷贝随刻启动。
-   - **夜间无人值守护肝版 (`auto_shutdown_watcher.py`)**：逻辑与前者相同，但在任务雷达侦测到全自动队列清仓完毕后，将触发系统级倒数关机机制，一键托管。
+   - **三引擎常驻显存**：fsmn-vad + SenseVoice + Stable-Whisper 大模型无需逢剧必载，结合 `ALIGNMENT_BATCH_SIZE` 的定期显存清理策略，完美避开 OOM 幽灵 Bug。
+   - 全程产生的文件**100% 镜像复刻 Input 中的多层子文件夹**，保持项目根目录终极洁癖。
+7. **自动化异步处理流水线**：
+   - **长期待机永不关机版 (`auto_watcher.py`)**：前线 GPU 无限单例处理模型切词并生成底稿，后方 API 线程池高并发翻译，支持断点续传，跑完即休眠监听。
+   - **夜间无人值守版 (`auto_shutdown_watcher.py`)**：逻辑与前者相同，但任务队列清仓后将触发系统级倒数关机。
 
 ## 环境配置与依赖
-*   本工具依赖一块性能够好且显存充裕的 NVIDIA GPU 以支撑 Demucs / Stable-Whisper 大模型的本地运算（默认指定了 `cuda` 和 `float16` 精度，项目源码存在 5070 Ti 相关显存释放特性的异常捕获设计）。
+*   本工具依赖一块 NVIDIA GPU（推荐 RTX 5070 Ti 或同级以上）以支撑 SenseVoice / Stable-Whisper 大模型的本地运算（默认 `cuda` + `float16` 精度）。
 *   项目需将虚拟环境放置于工程根目录的 `env/` 下。
-*   要求在工程根目录下建有 `.env` 文件，并正确配置了 DeepSeek API 令牌。
+*   要求在工程根目录下建有 `.env` 文件，并正确配置 DeepSeek API 令牌。
+*   首次运行时，FunASR 会自动从 ModelScope 下载 SenseVoice-Small 和 fsmn-vad 模型（约 1-2GB）。
 
 ```bash
-# 核心依赖环境参考 (建议配合 Python 3 虚拟环境)
+# 核心依赖环境参考 (建议配合 Python 3.12 虚拟环境)
 pip install -r requirements.txt
 ```
 
 ## 目录结构
 *   `Input/`：输入目录，待处理的动漫视频（如 `.mkv` 格式）拷贝至此。
-*   `Output/`：输出目录，最终生成的完美双语大作字幕（`.ass` 格式）会保存在此处。
-*   `auto_shutdown_watcher.py`：支持 GPU 前台独占与 API 请求后台并发的主流水线程序（挂机首选）。
-*   `auto_watcher.py`：基础单线程监听主程序。
-*   `last_alignment.py`：底稿/原轴生成核心逻辑（人声分离 -> Whisper 本地听写切词 -> 导出含精准时间轴的 `_alignment.json` 底稿）。
-*   `llm_translation.py`：大模型翻译核心逻辑（读取 JSON 分块合并上下文 -> 组装特殊 Prompt 调用 DeepSeek API -> 样式注入并生成 `.ass` 文件）。
-*   `separated/`：（运行中生成的）临时存放 Demucs 处理后的音频缓存数据存放区。
+*   `Output/`：输出目录，最终生成的中日双语字幕（`.ass` 格式）保存在此处。
+*   `auto_watcher.py`：支持 GPU 前台独占与 API 请求后台并发的主流水线程序（推荐）。
+*   `auto_shutdown_watcher.py`：带自动关机的无人值守挂机版。
+*   `last_alignment.py`：底稿/原轴生成核心逻辑（SenseVoice 雷达粗扫 → 禁飞区过滤 → Whisper 精确狙击 → 质检 → 导出 `_alignment.json` 底稿）。
+*   `llm_translation.py`：大模型翻译核心逻辑（读取 JSON 分块合并上下文 → DeepSeek API → 样式注入 `.ass` 文件）。
 
 ## 使用流程
-1. 确保项目根目录下存在 `.env` 文件，用于集中配置你的所有调教参数（无需修改 Python 源码）：
+1. 确保项目根目录下存在 `.env` 文件：
    ```env
    # DeepSeek API 密钥配置
    DEEPSEEK_API_KEY=sk-xxxxxx
 
-   # 异步并发大模型翻译任务数（防止因过高并发被 DeepSeek 封锁，建议 3-5）
+   # 异步并发大模型翻译任务数（建议 3-5）
    MAX_API_WORKERS=3
 
-   # 引擎常驻显存配置（设置几集清理一次模型显存，建议 1-5。设为 1 即每集清理，最防崩溃）
+   # 引擎常驻显存配置（设置几集清理一次模型显存，建议 1-5。设为 1 即每集清理）
    ALIGNMENT_BATCH_SIZE=3
    ```
-2. 启动脚本：推荐使用带有前后台并发的异步监听程序（双击也可运行，自动挂载当前目录环境）：
+2. 启动脚本：
    ```bash
    env\Scripts\python auto_watcher.py
    # 或需要睡前挂机的：env\Scripts\python auto_shutdown_watcher.py
    ```
-3. 将包含层级关系的一集或整季 `.mkv` 文件原封不动拖入或拷贝至 `Input` 文件夹中（它会自动保持里面的目录树层级！），程序将通过文件尺寸心跳检测自动接管完全落盘的内容。
-4. 挂机享受。处理中产生的所有关联底稿将直接创建在对位 `Output/` 文件夹中，翻译工作完毕后，带特效风格的中日双语 `.ass` 字幕就在该目录下。挂机版队列处理完毕后脚本会倒数60秒自动关机，按下 `Win+R` 输入 `shutdown /a` 可撤销关机指令。
+3. 将 `.mkv` 文件（支持多层子文件夹）拷贝至 `Input/` 文件夹，程序通过文件尺寸心跳检测自动接管。
+4. 挂机享受。翻译完毕后，中日双语 `.ass` 字幕会出现在 `Output/` 对应目录下。
