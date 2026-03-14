@@ -10,17 +10,22 @@
 ### 系统要求
 
 - Python 3.10+
-- NVIDIA GPU（推荐 RTX 3060 Ti 或同级以上）
-- CUDA 11.8+ 或 CUDA 12.x
+- **GPU（推荐）**：
+  - NVIDIA GPU（推荐 RTX 3060 Ti 或同级以上）+ CUDA 11.8+
+  - AMD GPU（RX 6000/7000 系列）+ ROCm 6.x（仅 Linux）
+  - Apple Silicon Mac (M1/M2/M3 系列)
+- **CPU 模式**：支持无显卡运行，但速度较慢（约 10-20 倍耗时）
 - **ffmpeg**（必须，用于音频提取）
 
 ### 资源消耗
 
-| 资源 | 最小要求 | 推荐 |
-|------|---------|------|
-| 内存 (RAM) | 3 GB | 8 GB+ |
-| 显存 (VRAM) | 7 GB | 10 GB+ |
-| 硬盘 | 5 GB（模型 + 依赖） | 10 GB+ |
+| 设备类型 | 内存 (RAM) | 显存 (VRAM) | Whisper 模型 |
+|----------|-----------|-------------|--------------|
+| NVIDIA GPU (10GB+) | 3 GB | 10 GB+ | large-v3 |
+| NVIDIA GPU (6-10GB) | 3 GB | 6-10 GB | medium |
+| AMD GPU (ROCm) | 3 GB | 8 GB+ | medium |
+| Apple Silicon | 8 GB+ | 共享内存 | medium |
+| CPU | 8 GB+ | - | small |
 
 > 实际消耗会根据视频长度和并发设置有所波动。
 
@@ -40,14 +45,18 @@ env\Scripts\activate
 # Linux/Mac:
 source env/bin/activate
 
-# 4. 安装 PyTorch（根据您的 CUDA 版本选择）
-# CUDA 12.8:
+# 4. 安装 PyTorch（根据您的设备选择）
+# NVIDIA GPU (CUDA 12.8):
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
-# CUDA 12.1:
+# NVIDIA GPU (CUDA 12.1):
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-# CUDA 11.8:
+# NVIDIA GPU (CUDA 11.8):
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
-# CPU only:
+# AMD GPU (ROCm 6.2, 仅 Linux):
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/rocm6.2
+# Apple Silicon Mac (MPS):
+pip install torch torchaudio
+# CPU only (无显卡):
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # 5. 安装 AnimeTranslator
@@ -190,6 +199,17 @@ animetranslator watch --shutdown
 # DeepSeek API 密钥配置（必填）
 DEEPSEEK_API_KEY=sk-xxxxxx
 
+# 设备配置（可选: auto/cuda/mps/cpu，默认 auto）
+# auto - 自动检测，优先级: CUDA > MPS > CPU
+# cuda - 强制使用 NVIDIA GPU
+# mps  - 强制使用 Apple Silicon GPU
+# cpu  - 强制使用 CPU（速度较慢）
+DEVICE=auto
+
+# Whisper 模型大小（可选，默认根据设备自动选择）
+# large-v3 / medium / small
+# WHISPER_MODEL=large-v3
+
 # 异步并发大模型翻译任务数（建议 3-5）
 MAX_API_WORKERS=3
 
@@ -287,12 +307,13 @@ ruff check src/
 - [ ] **推荐模型**：Qwen2.5、Llama3、GLM-4 等开源模型适配
 - [ ] **离线模式**：完全脱离网络运行的本地化方案
 
-### 4. AMD GPU 和 CPU 支持
+### 4. 多设备支持
 
-- [ ] **AMD GPU (ROCm)**：适配 AMD 显卡，支持 RX 6000/7000 系列
-- [ ] **纯 CPU 模式**：支持无显卡用户使用，速度换可用性
-- [ ] **Apple Silicon**：适配 M1/M2/M3 系列 GPU 加速
-- [ ] **混合推理**：部分模型走 GPU，部分走 CPU，优化资源利用
+- [x] **NVIDIA GPU (CUDA)**：RTX 系列显卡，CUDA 11.8+
+- [x] **AMD GPU (ROCm)**：RX 6000/7000 系列，仅 Linux，需安装 ROCm 驱动和 PyTorch ROCm 版
+- [x] **Apple Silicon (MPS)**：M1/M2/M3 系列 GPU 加速
+- [x] **纯 CPU 模式**：支持无显卡用户使用，速度换可用性
+- [x] **自动设备检测**：根据硬件自动选择最优设备和模型
 
 ### 5. 功能增强
 

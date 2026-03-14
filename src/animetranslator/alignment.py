@@ -7,6 +7,7 @@ AnimeTranslator 对齐引擎
 3. 提取精华 (Whisper 精确转写)
 4. 点石成金 (质检 + DeepSeek 翻译)
 """
+
 import os
 import json
 import re
@@ -21,15 +22,30 @@ import torchaudio
 from funasr import AutoModel
 
 from .config import get_env_float
+from .device import (
+    get_device_string,
+    get_compute_type,
+    get_recommended_whisper_model,
+    clear_device_cache,
+    print_device_info,
+    DeviceType,
+    get_device_type,
+)
 
 HALLUCINATION_PATTERNS = [
-    "ご視聴ありがとう", "チャンネル登録", "おやすみなさい", "お疲れ様",
-    "セリフ", "字幕", "ご覧いただき", "次回もお楽しみ", "高评価", "グッドボタン",
+    "ご視聴ありがとう",
+    "チャンネル登録",
+    "おやすみなさい",
+    "お疲れ様",
+    "セリフ",
+    "字幕",
+    "ご覧いただき",
+    "次回もお楽しみ",
+    "高评価",
+    "グッドボタン",
 ]
 
-BREATHING_PATTERN = re.compile(
-    r'^[はふうあえおっぁぅぇぉー！!\u2026。、\s]*$'
-)
+BREATHING_PATTERN = re.compile(r"^[はふうあえおっぁぅぇぉー！!\u2026。、\s]*$")
 
 TAG_BGM = "<|BGM|>"
 TAG_SPEECH = "<|Speech|>"
@@ -44,7 +60,7 @@ SLICE_PADDING_SEC = 0.3
 
 class AlignmentEngine:
     """对齐引擎：SenseVoice + Stable-Whisper 四阶段管线"""
-    
+
     def __init__(self):
         self.whisper_model = None
         self.sensevoice_model = None
@@ -52,11 +68,17 @@ class AlignmentEngine:
 
     def load_model(self):
         """加载三引擎：fsmn-vad、SenseVoice、Stable-Whisper"""
+        device = get_device_string()
+        compute_type = get_compute_type()
+        whisper_model = get_recommended_whisper_model()
+
+        print_device_info()
+
         if self.vad_model is None:
             print("📏 正在加载 fsmn-vad 测距引擎...")
             self.vad_model = AutoModel(
                 model="fsmn-vad",
-                device="cuda",
+                device=device,
                 vad_kwargs={
                     "threshold": 0.3,
                     "min_speech_duration_ms": 80,
@@ -73,16 +95,16 @@ class AlignmentEngine:
                 vad_model="fsmn-vad",
                 vad_kwargs={"max_single_segment_time": 30000},
                 trust_remote_code=True,
-                device="cuda",
+                device=device,
             )
             print("✅ SenseVoice 雷达引擎已就绪！")
         else:
             print("🛰️ SenseVoice 雷达引擎已在显存驻留，跳过加载。")
 
         if self.whisper_model is None:
-            print("🎯 正在加载 Stable-Whisper 狙击引擎 (Large-v3)...")
+            print(f"🎯 正在加载 Stable-Whisper 狙击引擎 ({whisper_model})...")
             self.whisper_model = stable_whisper.load_faster_whisper(
-                'large-v3', device='cuda', compute_type='float16'
+                whisper_model, device=device, compute_type=compute_type
             )
             print("✅ Stable-Whisper 狙击引擎已就绪！")
         else:
@@ -90,11 +112,9 @@ class AlignmentEngine:
 
     def clear_vram_cache(self):
         """清理显存"""
-        print("🧹 正在执行显存垃圾回收...")
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        print("✅ 显存已清理！")
+        print("🧹 正在执行设备缓存清理...")
+        clear_device_cache()
+        print("✅ 设备缓存已清理！")
 
     def _sensevoice_scan(self, audio_path):
         """第一阶段：SenseVoice 全局雷达粗扫"""
@@ -126,35 +146,43 @@ class AlignmentEngine:
             if isinstance(sv_res, dict):
                 combined_text += sv_res.get("text", "")
 
-        segment_pattern = re.compile(r'<\|ja\|>')
+        segment_pattern = re.compile(r"<\|ja\|>")
         raw_segments = segment_pattern.split(combined_text)
         raw_segments = [s for s in raw_segments if s.strip()]
 
         parsed_segments = []
         for raw_seg in raw_segments:
-            tags = re.findall(r'<\|(\w+)\|>', raw_seg)
-            clean_text = re.sub(r'<\|[^|]+\|>', '', raw_seg).strip()
-            event_tags = [t for t in tags if t in ("BGM", "Speech", "MUSIC", "Laughter", "Applause")]
-            parsed_segments.append({
-                "text": clean_text,
-                "tags": event_tags,
-            })
+            tags = re.findall(r"<\|(\w+)\|>", raw_seg)
+            clean_text = re.sub(r"<\|[^|]+\|>", "", raw_seg).strip()
+            event_tags = [
+                t for t in tags if t in ("BGM", "Speech", "MUSIC", "Laughter", "Applause")
+            ]
+            parsed_segments.append(
+                {
+                    "text": clean_text,
+                    "tags": event_tags,
+                }
+            )
 
         fragments = []
         n_match = min(len(vad_segments), len(parsed_segments))
         if len(vad_segments) != len(parsed_segments):
-            print(f"   ⚠️ VAD 段数({len(vad_segments)}) ≠ SenseVoice 段数({len(parsed_segments)})，"
-                  f"取最小值 {n_match} 进行匹配。")
+            print(
+                f"   ⚠️ VAD 段数({len(vad_segments)}) ≠ SenseVoice 段数({len(parsed_segments)})，"
+                f"取最小值 {n_match} 进行匹配。"
+            )
 
         for i in range(n_match):
             start, end = vad_segments[i]
             parsed = parsed_segments[i]
-            fragments.append({
-                "start": start,
-                "end": end,
-                "text": parsed["text"],
-                "tags": parsed["tags"],
-            })
+            fragments.append(
+                {
+                    "start": start,
+                    "end": end,
+                    "text": parsed["text"],
+                    "tags": parsed["tags"],
+                }
+            )
 
         print(f"   📡 雷达粗扫完成，共探测到 {len(fragments)} 个音频碎片。")
         return fragments
@@ -210,9 +238,11 @@ class AlignmentEngine:
 
             survivors.append(frag)
 
-        print(f"   🚧 分离完成: 丢弃 OP/ED {dropped_oped} 片, "
-              f"丢弃纯音乐 {dropped_music} 片, "
-              f"保留 {len(survivors)} 片精华。")
+        print(
+            f"   🚧 分离完成: 丢弃 OP/ED {dropped_oped} 片, "
+            f"丢弃纯音乐 {dropped_music} 片, "
+            f"保留 {len(survivors)} 片精华。"
+        )
         return survivors
 
     def _detect_op_ed_zone(self, fragments, window_start, window_end):
@@ -283,7 +313,7 @@ class AlignmentEngine:
 
                 result_sub = self.whisper_model.transcribe(
                     tmp_path,
-                    language='ja',
+                    language="ja",
                     beam_size=8,
                     vad_filter=False,
                     condition_on_previous_text=False,
@@ -292,9 +322,9 @@ class AlignmentEngine:
                 )
 
                 result_sub.split_by_punctuation(
-                    [('。', ' '), ('！', ' '), ('？', ' '), ('!', ' '), ('?', ' ')]
+                    [("。", " "), ("！", " "), ("？", " "), ("!", " "), ("?", " ")]
                 )
-                result_sub.split_by_punctuation([('、', ' ')])
+                result_sub.split_by_punctuation([("、", " ")])
                 result_sub.split_by_length(max_chars=35)
                 result_sub.split_by_gap(max_gap=0.5)
 
@@ -316,19 +346,21 @@ class AlignmentEngine:
                     abs_start = round(segment.start + pad_start, 3)
                     abs_end = round(segment.end + pad_start, 3)
 
-                    no_speech_prob = getattr(segment, 'no_speech_prob', 0.0)
-                    compression_ratio = getattr(segment, 'compression_ratio', 0.0)
+                    no_speech_prob = getattr(segment, "no_speech_prob", 0.0)
+                    compression_ratio = getattr(segment, "compression_ratio", 0.0)
 
-                    all_segments.append({
-                        "start": abs_start,
-                        "end": abs_end,
-                        "ja_text": text,
-                        "_no_speech_prob": no_speech_prob,
-                        "_compression_ratio": compression_ratio,
-                    })
+                    all_segments.append(
+                        {
+                            "start": abs_start,
+                            "end": abs_end,
+                            "ja_text": text,
+                            "_no_speech_prob": no_speech_prob,
+                            "_compression_ratio": compression_ratio,
+                        }
+                    )
 
             except Exception as e:
-                print(f"   ⚠️ 碎片 {i+1} 狙击失败: {str(e)}")
+                print(f"   ⚠️ 碎片 {i + 1} 狙击失败: {str(e)}")
             finally:
                 try:
                     os.unlink(tmp_path)
@@ -384,13 +416,18 @@ class AlignmentEngine:
             }
             passed.append(clean_seg)
 
-        print(f"   🔬 质检完成: 拦截 no_speech_prob 超标 {dropped_nsp} 句, "
-              f"拦截 compression_ratio 超标 {dropped_cr} 句, "
-              f"最终通过 {len(passed)} 句台词。")
+        print(
+            f"   🔬 质检完成: 拦截 no_speech_prob 超标 {dropped_nsp} 句, "
+            f"拦截 compression_ratio 超标 {dropped_cr} 句, "
+            f"最终通过 {len(passed)} 句台词。"
+        )
         return passed
 
-    def perform_ultimate_alignment(self, video_path, expected_json_path=None, progress_callback=None):
+    def perform_ultimate_alignment(
+        self, video_path, expected_json_path=None, progress_callback=None
+    ):
         """执行完整的对齐管线"""
+
         def _progress(pct, stage=""):
             if progress_callback:
                 progress_callback(pct, stage)
@@ -406,14 +443,20 @@ class AlignmentEngine:
 
         try:
             extract_cmd = [
-                "ffmpeg", "-y", "-i", str(video_path),
-                "-map", "0:a:0",
-                "-ar", "16000", "-ac", "1",
-                tmp_audio_path
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(video_path),
+                "-map",
+                "0:a:0",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                tmp_audio_path,
             ]
             result = subprocess.run(
-                extract_cmd, capture_output=True, text=True,
-                encoding='utf-8', errors='ignore'
+                extract_cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore"
             )
             if result.returncode != 0:
                 print(f"❌ 音频提取失败: {result.stderr}")
@@ -438,6 +481,7 @@ class AlignmentEngine:
         except Exception as e:
             print(f"⚠️ 管线执行异常: {str(e)}")
             import traceback
+
             traceback.print_exc()
             return False
         finally:
@@ -456,7 +500,7 @@ class AlignmentEngine:
         else:
             output_path = f"{video_name}_alignment.json"
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(final_subs, f, ensure_ascii=False, indent=4)
 
         print(f"✅ 底稿已生成！共 {len(final_subs)} 句台词，保存在: {output_path}")
