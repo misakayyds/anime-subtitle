@@ -3,6 +3,7 @@ AnimeTranslator WebUI — Gradio 前端
 
 独立于 watcher，共享 AlignmentEngine + translation 后端引擎
 """
+
 import os
 import sys
 import io
@@ -17,8 +18,14 @@ import gradio as gr
 from dotenv import load_dotenv, set_key
 
 from .config import (
-    INPUT_DIR, OUTPUT_DIR, ENV_FILE, ensure_dirs, load_env,
-    get_env, get_env_int, get_env_float
+    INPUT_DIR,
+    OUTPUT_DIR,
+    ENV_FILE,
+    ensure_dirs,
+    load_env,
+    get_env,
+    get_env_int,
+    get_env_float,
 )
 from .alignment import AlignmentEngine
 from .translation import run_translation
@@ -31,6 +38,7 @@ _engine = None
 
 class LogCapture(io.TextIOBase):
     """日志捕获器：拦截 print() 输出重定向到 Gradio 日志框"""
+
     def __init__(self, log_queue, original_stdout):
         super().__init__()
         self.log_queue = log_queue
@@ -41,7 +49,7 @@ class LogCapture(io.TextIOBase):
             self._stdout.write(text)
             self._stdout.flush()
         if text and text.strip():
-            self.log_queue.put(text.rstrip('\n'))
+            self.log_queue.put(text.rstrip("\n"))
         return len(text) if text else 0
 
     def flush(self):
@@ -97,8 +105,8 @@ def scan_files(input_dir, output_dir):
             if f.lower().endswith(".mkv"):
                 mkv_path = Path(root) / f
                 rel = mkv_path.relative_to(input_path)
-                ass_path = output_path / rel.with_suffix('.ass')
-                json_path = output_path / rel.with_suffix('').with_name(
+                ass_path = output_path / rel.with_suffix(".ass")
+                json_path = output_path / rel.with_suffix("").with_name(
                     f"{mkv_path.stem}_alignment.json"
                 )
 
@@ -188,7 +196,7 @@ def run_pipeline(input_dir, output_dir):
                 if f.lower().endswith(".mkv"):
                     mkv = Path(root) / f
                     rel = mkv.relative_to(input_path)
-                    ass = output_path / rel.with_suffix('.ass')
+                    ass = output_path / rel.with_suffix(".ass")
                     if not ass.exists():
                         pending.append((mkv, rel, ass))
 
@@ -216,8 +224,11 @@ def run_pipeline(input_dir, output_dir):
                 try:
                     _engine.load_model()
                     success = _engine.perform_ultimate_alignment(
-                        mkv, str(json_path),
-                        progress_callback=lambda pct, stage: _log_queue.put(f"   📊 {pct}% — {stage}")
+                        mkv,
+                        str(json_path),
+                        progress_callback=lambda pct, stage: _log_queue.put(
+                            f"   📊 {pct}% — {stage}"
+                        ),
                     )
                     if not success or not json_path.exists():
                         _log_queue.put(f"❌ 对齐失败，跳过此文件。")
@@ -288,7 +299,11 @@ def poll_logs(current_logs):
             break
 
     if new_lines:
-        updated = current_logs + "\n".join(new_lines) + "\n" if current_logs else "\n".join(new_lines) + "\n"
+        updated = (
+            current_logs + "\n".join(new_lines) + "\n"
+            if current_logs
+            else "\n".join(new_lines) + "\n"
+        )
         return updated
     return current_logs
 
@@ -303,10 +318,11 @@ def build_ui():
         css="""
             .log-box textarea { font-family: 'Consolas', 'Monaco', monospace !important; font-size: 13px !important; }
             footer { display: none !important; }
-        """
+        """,
     ) as app:
-
-        gr.Markdown("# 🎬 AnimeTranslator WebUI\n**音韵炼金术** — 感知共鸣 → 分离杂质 → 提取精华 → 点石成金")
+        gr.Markdown(
+            "# 🎬 AnimeTranslator WebUI\n**音韵炼金术** — 感知共鸣 → 分离杂质 → 提取精华 → 点石成金"
+        )
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -324,11 +340,33 @@ def build_ui():
                 upload_status = gr.Textbox(label="上传状态", interactive=False, lines=1)
 
                 gr.Markdown("### ⚙️ 参数配置")
-                api_key = gr.Textbox(label="DeepSeek API Key", value=env["api_key"], type="password")
-                max_workers = gr.Slider(1, 10, step=1, value=env["max_workers"], label="API 并发数 (MAX_API_WORKERS)")
-                batch_size = gr.Slider(1, 10, step=1, value=env["batch_size"], label="显存清理周期 (ALIGNMENT_BATCH_SIZE)")
-                nsp_threshold = gr.Slider(0.1, 1.0, step=0.05, value=env["nsp_threshold"], label="质检: no_speech_prob 阈值")
-                cr_threshold = gr.Slider(1.0, 5.0, step=0.1, value=env["cr_threshold"], label="质检: compression_ratio 阈值")
+                api_key = gr.Textbox(
+                    label="DeepSeek API Key", value=env["api_key"], type="password"
+                )
+                max_workers = gr.Slider(
+                    1, 10, step=1, value=env["max_workers"], label="API 并发数 (MAX_API_WORKERS)"
+                )
+                batch_size = gr.Slider(
+                    1,
+                    10,
+                    step=1,
+                    value=env["batch_size"],
+                    label="显存清理周期 (ALIGNMENT_BATCH_SIZE)",
+                )
+                nsp_threshold = gr.Slider(
+                    0.1,
+                    1.0,
+                    step=0.05,
+                    value=env["nsp_threshold"],
+                    label="质检: no_speech_prob 阈值",
+                )
+                cr_threshold = gr.Slider(
+                    1.0,
+                    5.0,
+                    step=0.1,
+                    value=env["cr_threshold"],
+                    label="质检: compression_ratio 阈值",
+                )
 
                 save_btn = gr.Button("💾 保存配置", variant="secondary")
                 save_status = gr.Textbox(label="保存状态", interactive=False, lines=1)
@@ -412,6 +450,16 @@ def build_ui():
 def run_webui(port=7860, share=False):
     """启动 WebUI"""
     ensure_dirs()
+
+    from .config import validate_config
+
+    warnings = validate_config()
+    if warnings:
+        print("⚠️ 配置验证警告:")
+        for w in warnings:
+            print(f"  {w}")
+        print()
+
     print("🎬 AnimeTranslator WebUI 正在启动...")
     print(f"📁 项目根目录: {INPUT_DIR.parent}")
     print(f"📥 输入目录: {INPUT_DIR}")

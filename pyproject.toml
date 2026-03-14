@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "animetranslator"
-version = "1.1.1"
+version = "1.2.0"
 description = "动漫智能机翻/校对工具 - 音韵炼金术四阶段管线"
 readme = "README.md"
 license = {text = "MIT"}
@@ -44,8 +44,8 @@ dev = [
 animetranslator = "animetranslator.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/your-username/AnimeTranslator"
-Repository = "https://github.com/your-username/AnimeTranslator.git"
+Homepage = "https://github.com/misakayyds/AnimeTranslator"
+Repository = "https://github.com/misakayyds/AnimeTranslator.git"
 
 [tool.setuptools.packages.find]
 where = ["src"]

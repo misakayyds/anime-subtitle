@@ -31,6 +31,7 @@ from .device import (
     DeviceType,
     get_device_type,
 )
+from .logger import log_info, log_warning, log_error
 
 HALLUCINATION_PATTERNS = [
     "ご視聴ありがとう",
@@ -75,7 +76,7 @@ class AlignmentEngine:
         print_device_info()
 
         if self.vad_model is None:
-            print("📏 正在加载 fsmn-vad 测距引擎...")
+            log_info("📏 正在加载 fsmn-vad 测距引擎...")
             self.vad_model = AutoModel(
                 model="fsmn-vad",
                 device=device,
@@ -84,12 +85,12 @@ class AlignmentEngine:
                     "min_speech_duration_ms": 80,
                 },
             )
-            print("✅ fsmn-vad 测距引擎已就绪！")
+            log_info("✅ fsmn-vad 测距引擎已就绪！")
         else:
-            print("📏 fsmn-vad 测距引擎已在显存驻留，跳过加载。")
+            log_info("📏 fsmn-vad 测距引擎已在显存驻留，跳过加载。")
 
         if self.sensevoice_model is None:
-            print("🛰️ 正在加载 SenseVoice 全局雷达引擎...")
+            log_info("🛰️ 正在加载 SenseVoice 全局雷达引擎...")
             self.sensevoice_model = AutoModel(
                 model="iic/SenseVoiceSmall",
                 vad_model="fsmn-vad",
@@ -97,30 +98,30 @@ class AlignmentEngine:
                 trust_remote_code=True,
                 device=device,
             )
-            print("✅ SenseVoice 雷达引擎已就绪！")
+            log_info("✅ SenseVoice 雷达引擎已就绪！")
         else:
-            print("🛰️ SenseVoice 雷达引擎已在显存驻留，跳过加载。")
+            log_info("🛰️ SenseVoice 雷达引擎已在显存驻留，跳过加载。")
 
         if self.whisper_model is None:
-            print(f"🎯 正在加载 Stable-Whisper 狙击引擎 ({whisper_model})...")
+            log_info(f"🎯 正在加载 Stable-Whisper 狙击引擎 ({whisper_model})...")
             self.whisper_model = stable_whisper.load_faster_whisper(
                 whisper_model, device=device, compute_type=compute_type
             )
-            print("✅ Stable-Whisper 狙击引擎已就绪！")
+            log_info("✅ Stable-Whisper 狙击引擎已就绪！")
         else:
-            print("🎯 Stable-Whisper 狙击引擎已在显存驻留，跳过加载。")
+            log_info("🎯 Stable-Whisper 狙击引擎已在显存驻留，跳过加载。")
 
     def clear_vram_cache(self):
         """清理显存"""
-        print("🧹 正在执行设备缓存清理...")
+        log_info("🧹 正在执行设备缓存清理...")
         clear_device_cache()
-        print("✅ 设备缓存已清理！")
+        log_info("✅ 设备缓存已清理！")
 
     def _sensevoice_scan(self, audio_path):
         """第一阶段：SenseVoice 全局雷达粗扫"""
-        print("📡 第一阶段：SenseVoice 全局雷达粗扫中...")
+        log_info("📡 第一阶段：SenseVoice 全局雷达粗扫中...")
 
-        print("   📏 fsmn-vad 正在测距...")
+        log_info("   📏 fsmn-vad 正在测距...")
         vad_results = self.vad_model.generate(
             input=str(audio_path),
             cache={},
@@ -130,9 +131,9 @@ class AlignmentEngine:
             if isinstance(vad_res, dict) and "value" in vad_res:
                 for seg in vad_res["value"]:
                     vad_segments.append((seg[0] / 1000.0, seg[1] / 1000.0))
-        print(f"   📏 测距完成，共发现 {len(vad_segments)} 个音频段。")
+        log_info(f"   📏 测距完成，共发现 {len(vad_segments)} 个音频段。")
 
-        print("   🛰️ SenseVoice 正在扫描标签...")
+        log_info("   🛰️ SenseVoice 正在扫描标签...")
         sv_results = self.sensevoice_model.generate(
             input=str(audio_path),
             cache={},
@@ -167,7 +168,7 @@ class AlignmentEngine:
         fragments = []
         n_match = min(len(vad_segments), len(parsed_segments))
         if len(vad_segments) != len(parsed_segments):
-            print(
+            log_info(
                 f"   ⚠️ VAD 段数({len(vad_segments)}) ≠ SenseVoice 段数({len(parsed_segments)})，"
                 f"取最小值 {n_match} 进行匹配。"
             )
@@ -184,28 +185,28 @@ class AlignmentEngine:
                 }
             )
 
-        print(f"   📡 雷达粗扫完成，共探测到 {len(fragments)} 个音频碎片。")
+        log_info(f"   📡 雷达粗扫完成，共探测到 {len(fragments)} 个音频碎片。")
         return fragments
 
     def _separate_impurities(self, fragments, audio_duration):
         """第二阶段：分离杂质"""
-        print("🚧 第二阶段：分离杂质...")
+        log_info("🚧 第二阶段：分离杂质...")
 
         impurity_zones = []
 
         op_zone = self._detect_op_ed_zone(fragments, 0, OP_WINDOW_SEC)
         if op_zone:
             impurity_zones.append(op_zone)
-            print(f"   🎵 已锁定 OP 杂质区域: {op_zone[0]:.1f}s ~ {op_zone[1]:.1f}s")
+            log_info(f"   🎵 已锁定 OP 杂质区域: {op_zone[0]:.1f}s ~ {op_zone[1]:.1f}s")
 
         ed_start = max(0, audio_duration - ED_WINDOW_SEC)
         ed_zone = self._detect_op_ed_zone(fragments, ed_start, audio_duration)
         if ed_zone:
             impurity_zones.append(ed_zone)
-            print(f"   🎵 已锁定 ED 杂质区域: {ed_zone[0]:.1f}s ~ {ed_zone[1]:.1f}s")
+            log_info(f"   🎵 已锁定 ED 杂质区域: {ed_zone[0]:.1f}s ~ {ed_zone[1]:.1f}s")
 
         if not impurity_zones:
-            print("   ℹ️ 未检测到 OP/ED 杂质区域。")
+            log_info("   ℹ️ 未检测到 OP/ED 杂质区域。")
 
         survivors = []
         dropped_music = 0
@@ -238,7 +239,7 @@ class AlignmentEngine:
 
             survivors.append(frag)
 
-        print(
+        log_info(
             f"   🚧 分离完成: 丢弃 OP/ED {dropped_oped} 片, "
             f"丢弃纯音乐 {dropped_music} 片, "
             f"保留 {len(survivors)} 片精华。"
@@ -284,7 +285,7 @@ class AlignmentEngine:
     def _whisper_snipe(self, waveform, sr, survivors):
         """第三阶段：Whisper 精确狙击"""
         total = len(survivors)
-        print(f"🎯 第三阶段：Whisper 精确狙击 {total} 个有效目标...")
+        log_info(f"🎯 第三阶段：Whisper 精确狙击 {total} 个有效目标...")
 
         all_segments = []
 
@@ -293,7 +294,7 @@ class AlignmentEngine:
             frag_end = frag["end"]
 
             if (i + 1) % 20 == 0 or i == total - 1:
-                print(f"   🎯 进度: {i + 1}/{total} ({(i + 1) / total * 100:.0f}%)")
+                log_info(f"   🎯 进度: {i + 1}/{total} ({(i + 1) / total * 100:.0f}%)")
 
             pad_start = max(0, frag_start - SLICE_PADDING_SEC)
             pad_end = min(waveform.shape[1] / sr, frag_end + SLICE_PADDING_SEC)
@@ -360,7 +361,7 @@ class AlignmentEngine:
                     )
 
             except Exception as e:
-                print(f"   ⚠️ 碎片 {i + 1} 狙击失败: {str(e)}")
+                log_warning(f"   ⚠️ 碎片 {i + 1} 狙击失败: {str(e)}")
             finally:
                 try:
                     os.unlink(tmp_path)
@@ -381,14 +382,14 @@ class AlignmentEngine:
             deduped.append(seg)
 
         if len(all_segments) != len(deduped):
-            print(f"   🔗 去重: {len(all_segments)} → {len(deduped)}")
+            log_info(f"   🔗 去重: {len(all_segments)} → {len(deduped)}")
 
-        print(f"   🎯 狙击完成，共命中 {len(deduped)} 句候选台词。")
+        log_info(f"   🎯 狙击完成，共命中 {len(deduped)} 句候选台词。")
         return deduped
 
     def _quality_check(self, segments):
         """第四阶段：终极质检"""
-        print("🔬 第四阶段：终极质检中...")
+        log_info("🔬 第四阶段：终极质检中...")
 
         nsp_threshold = get_env_float("NO_SPEECH_PROB_THRESHOLD", 0.7)
         cr_threshold = get_env_float("COMPRESSION_RATIO_THRESHOLD", 2.8)
@@ -416,7 +417,7 @@ class AlignmentEngine:
             }
             passed.append(clean_seg)
 
-        print(
+        log_info(
             f"   🔬 质检完成: 拦截 no_speech_prob 超标 {dropped_nsp} 句, "
             f"拦截 compression_ratio 超标 {dropped_cr} 句, "
             f"最终通过 {len(passed)} 句台词。"
@@ -437,7 +438,7 @@ class AlignmentEngine:
 
         self.load_model()
 
-        print(f"🎬 正在从 [{video_name}] 提取原声音频到内存...")
+        log_info(f"🎬 正在从 [{video_name}] 提取原声音频到内存...")
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp_audio_path = tmp.name
 
@@ -459,12 +460,12 @@ class AlignmentEngine:
                 extract_cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore"
             )
             if result.returncode != 0:
-                print(f"❌ 音频提取失败: {result.stderr}")
+                log_error(f"❌ 音频提取失败: {result.stderr}")
                 return False
 
             waveform, sr = torchaudio.load(tmp_audio_path)
             audio_duration = waveform.shape[1] / sr
-            print(f"   ✅ 音频已加载到内存，时长 {audio_duration:.1f}s")
+            log_info(f"   ✅ 音频已加载到内存，时长 {audio_duration:.1f}s")
 
             fragments = self._sensevoice_scan(tmp_audio_path)
             _progress(20, "📡 感知共鸣完成")
@@ -479,7 +480,7 @@ class AlignmentEngine:
             _progress(95, "🔬 点石成金完成")
 
         except Exception as e:
-            print(f"⚠️ 管线执行异常: {str(e)}")
+            log_error(f"⚠️ 管线执行异常: {str(e)}")
             import traceback
 
             traceback.print_exc()
@@ -503,5 +504,5 @@ class AlignmentEngine:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(final_subs, f, ensure_ascii=False, indent=4)
 
-        print(f"✅ 底稿已生成！共 {len(final_subs)} 句台词，保存在: {output_path}")
+        log_info(f"✅ 底稿已生成！共 {len(final_subs)} 句台词，保存在: {output_path}")
         return True

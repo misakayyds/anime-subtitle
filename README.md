@@ -191,6 +191,16 @@ animetranslator watch --shutdown
    - 三引擎常驻显存：fsmn-vad + SenseVoice + Stable-Whisper 大模型无需逢剧必载
    - 定期显存清理策略，完美避开 OOM 幽灵 Bug
 
+7. **结构化日志系统**：
+   - 统一的日志记录，支持控制台和文件双输出
+   - 日志文件保存在 `Output/logs/` 目录，格式为 `animetranslator_YYYYMMDD_HHMMSS.log`
+   - 带时间戳的日志格式，便于问题排查
+
+8. **配置自动验证**：
+   - 启动时自动检查配置项有效性
+   - API Key 格式验证、参数范围检查
+   - 问题提示清晰，降低配置错误率
+
 ## 配置说明
 
 编辑项目根目录下的 `.env` 文件：
@@ -237,13 +247,16 @@ AnimeTranslator/
 │       ├── __main__.py
 │       ├── cli.py           # CLI 入口
 │       ├── config.py        # 配置管理
+│       ├── logger.py        # 日志模块
+│       ├── device.py        # 设备管理
 │       ├── alignment.py     # 对齐引擎
 │       ├── translation.py   # 翻译模块
 │       ├── watcher.py       # 后台看门狗
 │       └── webui.py         # WebUI 界面
 ├── tests/
 ├── Input/                   # 输入目录（待处理视频）
-├── Output/                  # 输出目录（生成的字幕）
+├── Output/                  # 输出目录（生成的字幕 + 日志）
+│   └── logs/                # 日志文件目录
 └── env/                     # 虚拟环境（用户创建）
 ```
 

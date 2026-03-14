@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-03-14
+
+### Added
+
+- **Structured logging system**: New `logger.py` module with unified logging
+  - Dual output: console + file persistence
+  - Log files saved to `Output/logs/animetranslator_YYYYMMDD_HHMMSS.log`
+  - Timestamp format: `[HH:MM:SS] message`
+
+- **Configuration validation**: New `validate_config()` function in `config.py`
+  - Validates `DEEPSEEK_API_KEY` presence and format
+  - Validates `DEVICE` value (auto/cuda/rocm/mps/cpu)
+  - Validates `WHISPER_MODEL` value (large-v3/medium/small)
+  - Validates numeric ranges for `MAX_API_WORKERS`, `ALIGNMENT_BATCH_SIZE`, thresholds
+  - Warnings displayed at startup without blocking execution
+
+### Changed
+
+- Replaced all `print()` calls with structured logging functions (`log_info`, `log_warning`, `log_error`)
+- Unified version number across `__init__.py` and `pyproject.toml`
+- Fixed placeholder GitHub URLs in `pyproject.toml` (`your-username` → `misakayyds`)
+
 ## [1.1.1] - 2026-03-14
 
 ### Fixed

@@ -9,7 +9,6 @@ AnimeTranslator 设备管理模块
 
 import gc
 from enum import Enum
-from typing import Tuple
 
 import torch
 
@@ -50,19 +49,25 @@ def get_device_type() -> DeviceType:
                 return DeviceType.ROCM
             return DeviceType.CUDA
         else:
-            print("⚠️ DEVICE=cuda 但 CUDA 不可用，回退到自动检测")
+            from .logger import log_warning
+
+            log_warning("⚠️ DEVICE=cuda 但 CUDA 不可用，回退到自动检测")
             return detect_device()
     elif env_device == "rocm":
         if torch.cuda.is_available() and is_rocm():
             return DeviceType.ROCM
         else:
-            print("⚠️ DEVICE=rocm 但 ROCm 不可用，回退到自动检测")
+            from .logger import log_warning
+
+            log_warning("⚠️ DEVICE=rocm 但 ROCm 不可用，回退到自动检测")
             return detect_device()
     elif env_device == "mps":
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return DeviceType.MPS
         else:
-            print("⚠️ DEVICE=mps 但 MPS 不可用，回退到自动检测")
+            from .logger import log_warning
+
+            log_warning("⚠️ DEVICE=mps 但 MPS 不可用，回退到自动检测")
             return detect_device()
     elif env_device == "cpu":
         return DeviceType.CPU
@@ -159,25 +164,27 @@ def clear_device_cache():
 
 def print_device_info():
     """打印设备信息到控制台"""
+    from .logger import log_info, log_warning
+
     device = get_device_type()
     info = get_device_info()
 
-    print(f"🖥️ 设备类型: {info}")
+    log_info(f"🖥️ 设备类型: {info}")
 
     if device in (DeviceType.CUDA, DeviceType.ROCM):
         whisper_model = get_recommended_whisper_model()
         compute_type = get_compute_type()
-        print(f"🎯 Whisper 模型: {whisper_model}")
-        print(f"⚙️ 计算精度: {compute_type}")
+        log_info(f"🎯 Whisper 模型: {whisper_model}")
+        log_info(f"⚙️ 计算精度: {compute_type}")
     elif device == DeviceType.MPS:
         whisper_model = get_recommended_whisper_model()
         compute_type = get_compute_type()
-        print(f"🎯 Whisper 模型: {whisper_model}")
-        print(f"⚙️ 计算精度: {compute_type}")
+        log_info(f"🎯 Whisper 模型: {whisper_model}")
+        log_info(f"⚙️ 计算精度: {compute_type}")
     else:
-        print("⚠️ 警告: 使用 CPU 模式，处理速度将非常慢！")
-        print("💡 提示: 如有 NVIDIA GPU，请安装 CUDA 版 PyTorch")
-        print("💡 提示: 如有 AMD GPU，请安装 ROCm 版 PyTorch (仅 Linux)")
-        print("💡 提示: 如有 Apple Silicon Mac，MPS 将自动启用")
+        log_warning("⚠️ 警告: 使用 CPU 模式，处理速度将非常慢！")
+        log_info("💡 提示: 如有 NVIDIA GPU，请安装 CUDA 版 PyTorch")
+        log_info("💡 提示: 如有 AMD GPU，请安装 ROCm 版 PyTorch (仅 Linux)")
+        log_info("💡 提示: 如有 Apple Silicon Mac，MPS 将自动启用")
         whisper_model = get_recommended_whisper_model()
-        print(f"🎯 Whisper 模型: {whisper_model} (轻量化)")
+        log_info(f"🎯 Whisper 模型: {whisper_model} (轻量化)")

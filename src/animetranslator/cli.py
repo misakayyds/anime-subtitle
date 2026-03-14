@@ -7,27 +7,46 @@ AnimeTranslator CLI 命令行入口
     animetranslator watch --shutdown
     python -m animetranslator webui
 """
+
 import argparse
 import sys
 
 
+def _run_config_validation():
+    """运行配置验证并打印警告"""
+    from animetranslator.config import validate_config
+    from animetranslator.logger import setup_logger, log_warning
+
+    setup_logger()
+    warnings = validate_config()
+    if warnings:
+        log_warning("=" * 50)
+        log_warning("配置验证警告:")
+        for w in warnings:
+            log_warning(f"  {w}")
+        log_warning("=" * 50)
+
+
 def cmd_webui(args):
     """启动 WebUI"""
+    _run_config_validation()
     from animetranslator.webui import run_webui
+
     run_webui(port=args.port, share=args.share)
 
 
 def cmd_watch(args):
     """启动看门狗监听"""
+    _run_config_validation()
     from animetranslator.watcher import run_watcher
+
     run_watcher(shutdown_on_complete=args.shutdown)
 
 
 def main():
     """CLI 主入口"""
     parser = argparse.ArgumentParser(
-        prog="animetranslator",
-        description="动漫智能机翻/校对工具 - 音韵炼金术四阶段管线"
+        prog="animetranslator", description="动漫智能机翻/校对工具 - 音韵炼金术四阶段管线"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
