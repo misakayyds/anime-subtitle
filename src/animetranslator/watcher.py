@@ -13,7 +13,14 @@ import shutil
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
-from .config import INPUT_DIR, OUTPUT_DIR, ensure_dirs, load_env, get_env_int
+from .config import (
+    INPUT_DIR,
+    OUTPUT_DIR,
+    ensure_dirs,
+    load_env,
+    get_env_int,
+    SUPPORTED_VIDEO_EXTENSIONS,
+)
 from .alignment import AlignmentEngine
 from .translation import run_translation
 from .logger import log_info, log_error, log_warning
@@ -52,37 +59,37 @@ def run_watcher(shutdown_on_complete=False):
         pending_count = 0
         for root, _, files in os.walk(INPUT_DIR):
             for file in files:
-                if file.lower().endswith(".mkv"):
-                    input_mkv = Path(root) / file
-                    rel_path = input_mkv.relative_to(INPUT_DIR)
+                if any(file.lower().endswith(ext) for ext in SUPPORTED_VIDEO_EXTENSIONS):
+                    input_video = Path(root) / file
+                    rel_path = input_video.relative_to(INPUT_DIR)
                     expected_output_ass = OUTPUT_DIR / rel_path.with_suffix(".ass")
                     if not expected_output_ass.exists():
                         pending_count += 1
         return pending_count
 
-    def background_translation_task(json_path, input_mkv, expected_output_ass):
+    def background_translation_task(json_path, input_video, expected_output_ass):
         """后台翻译任务"""
         try:
-            log_info(f"🚀 [后台分发] 正在为 {input_mkv.name} 并发请求 DeepSeek...")
+            log_info(f"🚀 [后台分发] 正在为 {input_video.name} 并发请求 DeepSeek...")
             run_translation(str(json_path), str(expected_output_ass))
 
             if expected_output_ass.exists():
                 log_info(
-                    f"🎉 [后台大捷] {input_mkv.name} 的完美字幕已直接送达: {expected_output_ass}"
+                    f"🎉 [后台大捷] {input_video.name} 的完美字幕已直接送达: {expected_output_ass}"
                 )
 
             if json_path.exists():
                 json_path.unlink()
 
-            vocals_dir = INPUT_DIR.parent / "separated" / "htdemucs" / input_mkv.stem
+            vocals_dir = INPUT_DIR.parent / "separated" / "htdemucs" / input_video.stem
             if vocals_dir.exists():
                 shutil.rmtree(vocals_dir)
 
         except Exception as e:
-            log_error(f"💥 [后台崩溃] {input_mkv.name} API 翻译失败: {e}")
+            log_error(f"💥 [后台崩溃] {input_video.name} API 翻译失败: {e}")
         finally:
-            if input_mkv in active_api_tasks:
-                active_api_tasks.remove(input_mkv)
+            if input_video in active_api_tasks:
+                active_api_tasks.remove(input_video)
 
     def process_queue():
         """处理队列中的视频文件"""
@@ -90,25 +97,25 @@ def run_watcher(shutdown_on_complete=False):
 
         for root, _, files in os.walk(INPUT_DIR):
             for file in files:
-                if file.lower().endswith(".mkv"):
-                    input_mkv = Path(root) / file
-                    rel_path = input_mkv.relative_to(INPUT_DIR)
+                if any(file.lower().endswith(ext) for ext in SUPPORTED_VIDEO_EXTENSIONS):
+                    input_video = Path(root) / file
+                    rel_path = input_video.relative_to(INPUT_DIR)
                     expected_output_ass = OUTPUT_DIR / rel_path.with_suffix(".ass")
 
                     if expected_output_ass.exists():
                         continue
 
-                    if input_mkv in active_api_tasks:
+                    if input_video in active_api_tasks:
                         continue
 
-                    if not is_file_ready(input_mkv):
+                    if not is_file_ready(input_video):
                         continue
 
                     log_info(f"\n" + "=" * 50)
                     log_info(f"🎯 [前台 GPU 锁定目标] {rel_path.name}")
 
                     expected_output_ass.parent.mkdir(parents=True, exist_ok=True)
-                    json_name = f"{input_mkv.stem}_alignment.json"
+                    json_name = f"{input_video.stem}_alignment.json"
                     json_path = expected_output_ass.with_name(json_name)
 
                     try:
@@ -119,7 +126,7 @@ def run_watcher(shutdown_on_complete=False):
                             log_info(f"--> [独占显卡] 压榨 GPU 提取对齐中...")
                             try:
                                 success = alignment_engine.perform_ultimate_alignment(
-                                    input_mkv, str(json_path)
+                                    input_video, str(json_path)
                                 )
                                 if not success:
                                     log_warning(f"⚠️ 模型提取遭遇异常返回。")
@@ -132,9 +139,9 @@ def run_watcher(shutdown_on_complete=False):
 
                         log_info(f"📦 底稿就绪！把 {rel_path.name} 一脚踹进后台 API 线程池！")
 
-                        active_api_tasks.add(input_mkv)
+                        active_api_tasks.add(input_video)
                         api_thread_pool.submit(
-                            background_translation_task, json_path, input_mkv, expected_output_ass
+                            background_translation_task, json_path, input_video, expected_output_ass
                         )
 
                         episodes_processed_since_last_unload += 1

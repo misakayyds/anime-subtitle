@@ -26,6 +26,7 @@ from .config import (
     get_env,
     get_env_int,
     get_env_float,
+    SUPPORTED_VIDEO_EXTENSIONS,
 )
 from .alignment import AlignmentEngine
 from .translation import run_translation
@@ -102,12 +103,12 @@ def scan_files(input_dir, output_dir):
 
     for root, _, files in os.walk(input_path):
         for f in sorted(files):
-            if f.lower().endswith(".mkv"):
-                mkv_path = Path(root) / f
-                rel = mkv_path.relative_to(input_path)
+            if any(f.lower().endswith(ext) for ext in SUPPORTED_VIDEO_EXTENSIONS):
+                video_path = Path(root) / f
+                rel = video_path.relative_to(input_path)
                 ass_path = output_path / rel.with_suffix(".ass")
                 json_path = output_path / rel.with_suffix("").with_name(
-                    f"{mkv_path.stem}_alignment.json"
+                    f"{video_path.stem}_alignment.json"
                 )
 
                 if ass_path.exists():
@@ -120,7 +121,7 @@ def scan_files(input_dir, output_dir):
                 rows.append([str(rel), status, str(ass_path) if ass_path.exists() else ""])
 
     if not rows:
-        return [["（无 .mkv 文件）", "", ""]]
+        return [["（无支持的视频文件）", "", ""]]
     return rows
 
 
@@ -193,12 +194,12 @@ def run_pipeline(input_dir, output_dir):
         pending = []
         for root, _, files in os.walk(input_path):
             for f in sorted(files):
-                if f.lower().endswith(".mkv"):
-                    mkv = Path(root) / f
-                    rel = mkv.relative_to(input_path)
+                if any(f.lower().endswith(ext) for ext in SUPPORTED_VIDEO_EXTENSIONS):
+                    video = Path(root) / f
+                    rel = video.relative_to(input_path)
                     ass = output_path / rel.with_suffix(".ass")
                     if not ass.exists():
-                        pending.append((mkv, rel, ass))
+                        pending.append((video, rel, ass))
 
         if not pending:
             _log_queue.put("ℹ️ 没有待处理的文件，管线结束。")
@@ -206,7 +207,7 @@ def run_pipeline(input_dir, output_dir):
 
         _log_queue.put(f"📋 共发现 {len(pending)} 个待处理文件。")
 
-        for idx, (mkv, rel, ass) in enumerate(pending):
+        for idx, (video, rel, ass) in enumerate(pending):
             if _cancel_flag.is_set():
                 _log_queue.put("🛑 用户终止了处理。")
                 break
@@ -215,7 +216,7 @@ def run_pipeline(input_dir, output_dir):
             _log_queue.put(f"🎯 [{idx + 1}/{len(pending)}] {rel.name}")
 
             ass.parent.mkdir(parents=True, exist_ok=True)
-            json_name = f"{mkv.stem}_alignment.json"
+            json_name = f"{video.stem}_alignment.json"
             json_path = ass.with_name(json_name)
 
             if json_path.exists():
@@ -224,7 +225,7 @@ def run_pipeline(input_dir, output_dir):
                 try:
                     _engine.load_model()
                     success = _engine.perform_ultimate_alignment(
-                        mkv,
+                        video,
                         str(json_path),
                         progress_callback=lambda pct, stage: _log_queue.put(
                             f"   📊 {pct}% — {stage}"
@@ -332,9 +333,9 @@ def build_ui():
 
                 gr.Markdown("### 📤 拖拽上传文件")
                 upload = gr.File(
-                    label="拖入 .mkv 文件（自动存入输入目录）",
+                    label="拖入视频文件（自动存入输入目录）",
                     file_count="multiple",
-                    file_types=[".mkv"],
+                    file_types=[".mkv", ".mp4", ".avi", ".mov", ".flv", ".wmv", ".webm"],
                     type="filepath",
                 )
                 upload_status = gr.Textbox(label="上传状态", interactive=False, lines=1)

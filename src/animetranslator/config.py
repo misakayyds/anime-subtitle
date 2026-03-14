@@ -40,6 +40,8 @@ INPUT_DIR = PROJECT_ROOT / "Input"
 OUTPUT_DIR = PROJECT_ROOT / "Output"
 ENV_FILE = PROJECT_ROOT / ".env"
 
+SUPPORTED_VIDEO_EXTENSIONS = (".mkv", ".mp4", ".avi", ".mov", ".flv", ".wmv", ".webm")
+
 
 def ensure_dirs():
     """确保必要目录存在"""

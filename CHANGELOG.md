@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2026-03-14
+
+### Added
+
+- **Multi-format video support**: Extended video format support beyond MKV
+  - Supported formats: `.mkv`, `.mp4`, `.avi`, `.mov`, `.flv`, `.wmv`, `.webm`
+  - New configuration constant `SUPPORTED_VIDEO_EXTENSIONS` in `config.py`
+  - WebUI upload component now accepts all supported formats
+  - File scanner automatically detects all supported video formats
+
+### Changed
+
+- Updated file scanning logic in `watcher.py` and `webui.py` to use centralized format list
+- Improved file status display messages in WebUI
+
 ## [1.2.0] - 2026-03-14
 
 ### Added

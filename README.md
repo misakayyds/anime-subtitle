@@ -137,7 +137,8 @@ animetranslator watch --shutdown
 
 ### 工作流程
 
-1. 将 `.mkv` 视频文件放入 `Input/` 目录（支持多层子文件夹）
+1. 将视频文件放入 `Input/` 目录（支持多层子文件夹）
+   - 支持格式：`.mkv`, `.mp4`, `.avi`, `.mov`, `.flv`, `.wmv`, `.webm`
 2. 运行 `animetranslator webui` 或 `animetranslator watch`
 3. 等待处理完成
 4. 在 `Output/` 目录获取双语 `.ass` 字幕文件
@@ -145,7 +146,7 @@ animetranslator watch --shutdown
 ## 核心架构：音韵炼金术
 
 ```
-原声视频 MKV
+原声视频文件
     │
     ▼
 📡 一阶·感知共鸣 (SenseVoice)
@@ -272,7 +273,7 @@ AnimeTranslator/
 
 ### Q: 支持哪些视频格式？
 
-目前主要支持 `.mkv` 格式。如需其他格式，可先用 ffmpeg 转换。
+支持多种常见视频格式：`.mkv`, `.mp4`, `.avi`, `.mov`, `.flv`, `.wmv`, `.webm`
 
 ### Q: 如何查看处理进度？
 
@@ -332,7 +333,7 @@ ruff check src/
 
 - [ ] WebUI 国际化（i18n）
 - [ ] Docker 一键部署
-- [ ] 更多视频格式支持（MP4、AVI、MOV 等）
+- [x] 更多视频格式支持（MP4、AVI、MOV、FLV 等）
 - [ ] 字幕编辑器：实时预览和手动修正
 - [ ] 批量处理进度追踪和断点续传优化
 
