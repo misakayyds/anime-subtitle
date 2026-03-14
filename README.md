@@ -298,6 +298,8 @@ ruff check src/
 
 ## 后续计划
 
+详细开发路线图请查看 [docs/ROADMAP.md](docs/ROADMAP.md)
+
 ### 1. 更多模型适配
 
 - [ ] **轻量级模型选项**：支持 Whisper Medium/Small，降低显存需求至 4GB

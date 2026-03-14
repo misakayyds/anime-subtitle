@@ -50,3 +50,6 @@ htmlcov/
 
 # Linter
 .ruff_cache/
+
+# 设计文档（不纳入版本控制）
+future_logic.md
