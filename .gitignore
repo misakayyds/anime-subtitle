@@ -47,3 +47,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Linter
+.ruff_cache/
