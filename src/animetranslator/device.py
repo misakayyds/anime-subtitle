@@ -152,7 +152,6 @@ def clear_device_cache():
 
     if device in (DeviceType.CUDA, DeviceType.ROCM):
         torch.cuda.empty_cache()
-        torch.cuda.synchronize()
     elif device == DeviceType.MPS:
         if hasattr(torch.mps, "empty_cache"):
             torch.mps.empty_cache()

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2026-03-14
+
+### Fixed
+
+- **WebUI freeze during VRAM cleanup**: Removed `torch.cuda.synchronize()` that could cause deadlock in multi-threaded environment when processing multiple episodes
+
 ## [1.1.0] - 2026-03-14
 
 ### Added
@@ -24,6 +30,7 @@ All notable changes to this project will be documented in this file.
   - `WHISPER_MODEL`: Optional manual override for Whisper model size
 
 - **New module**: `device.py` - Centralized device management
+
 
 ### Changed
 
