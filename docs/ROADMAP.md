@@ -17,6 +17,80 @@
 
 ## 🌐 翻译模块 (Translation)
 
+### P0 - 多目标语言支持
+
+**目标**：支持将日语字幕翻译成多种目标语言，非硬编码中文
+
+**架构设计（Provider + Prompt 模板化）**：
+
+```
+src/animetranslator/
+├── providers/
+│   ├── __init__.py
+│   ├── base.py              # Provider 基类
+│   ├── translation/
+│   │   ├── __init__.py
+│   │   ├── base.py          # TranslationProvider 基类
+│   │   └── deepseek.py      # DeepSeek 实现
+│   └── prompt/
+│       ├── __init__.py
+│       ├── manager.py       # 提示词管理器
+│       └── templates/
+│           ├── zh_CN.yaml   # 中文翻译模板
+│           ├── en_US.yaml   # 英文翻译模板
+│           └── ko_KR.yaml   # 韩文翻译模板
+```
+
+**优先支持的语言**：
+- [ ] English (`en_US`)
+- [ ] 简体中文 (`zh_CN`) - 重构现有实现
+- [ ] 繁體中文 (`zh_TW`)
+- [ ] 한국어 (`ko_KR`)
+
+**后续支持**：
+- [ ] 用户自定义语言模板
+- [ ] 自定义提示词文件路径
+
+**配置设计**：
+```env
+# 翻译目标语言
+TARGET_LANGUAGE=en_US
+
+# 自定义提示词目录（可选，优先级高于内置）
+# PROMPT_TEMPLATES_DIR=/path/to/custom/prompts
+```
+
+**提示词模板示例 (en_US.yaml)**：
+```yaml
+language: en_US
+field_name: en_translated
+display_name: English
+
+ass_style:
+  format: "{ja}\\N{{\\fs45}}{translated}"
+  font: Arial
+
+prompt: |
+  You are an expert anime translator.
+  Translate Japanese dialogue to natural, fluent English.
+  
+  Rules:
+  - Preserve anime-specific terms and character names
+  - Handle honorifics appropriately (-san, -chan, etc.)
+  - Remove Whisper hallucinations (set to "")
+  
+  Return JSON: {"1": {"ja_corrected": "...", "en_translated": "..."}}
+```
+
+**输出文件命名**：
+| 目标语言 | 输出文件名 |
+|---------|-----------|
+| zh_CN | `video_bilingual.ass` (保持兼容) |
+| en_US | `video_en.ass` |
+| ko_KR | `video_ko.ass` |
+
+---
+
 ### P0 - 多服务商支持
 
 **目标**：支持多个翻译 API 服务商，避免单点故障
@@ -132,11 +206,18 @@ TRANSLATION_PARALLEL_PROVIDERS=deepseek,openai
 
 ---
 
-### P2 - 多语言支持
+### P2 - 多源语言支持
 
-- [ ] 韩语字幕生成
-- [ ] 英语字幕生成
-- [ ] 配置项：`SOURCE_LANGUAGE=ja|ko|en`
+**目标**：支持从非日语视频生成字幕
+
+- [ ] 韩语视频识别（SOURCE_LANGUAGE=ko）
+- [ ] 英语视频识别（SOURCE_LANGUAGE=en）
+- [ ] 中文视频识别（SOURCE_LANGUAGE=zh）
+- [ ] 配置项：`SOURCE_LANGUAGE=ja|ko|en|zh`
+
+**注意**：此功能与翻译模块的"多目标语言支持"不同
+- 源语言：视频中的原始语音语言
+- 目标语言：翻译后的字幕语言
 
 ---
 
@@ -217,7 +298,8 @@ TRANSLATION_PARALLEL_PROVIDERS=deepseek,openai
 - 无统一 Pipeline 抽象
 
 **优化方向**：
-- [ ] 抽取 Provider 基类（ASR/翻译/VAD）
+- [ ] 抽取 Provider 基类（ASR/翻译/VAD）→ 详见翻译模块 Provider 设计
+- [ ] 提示词模板化，支持自定义 → 详见翻译模块多目标语言支持
 - [ ] 拆分 alignment.py 为独立 stages/
 - [ ] 添加 Pipeline 编排器 + 事件系统
 - [ ] 分离 UI/业务逻辑
@@ -249,10 +331,10 @@ TRANSLATION_PARALLEL_PROVIDERS=deepseek,openai
 | 版本 | 重点功能 | 状态 |
 |------|----------|------|
 | v1.2.x | 多格式视频支持、日志系统、国际化 (i18n) | ✅ 已发布 |
-| v1.3.0 | 多服务商支持、降级逻辑改进 | 计划中 |
-| v1.4.0 | Provider 抽象、校对模式、轻量级模型 | 计划中 |
-| v1.5.0 | Pipeline 编排器、多 ASR 引擎、多语言支持 | 计划中 |
-| v1.6.0 | 插件系统、整合包配置预设 | 计划中 |
+| v1.3.0 | 多目标语言支持、提示词模板化 | 计划中 |
+| v1.4.0 | 多服务商支持、降级逻辑改进、Provider 抽象 | 计划中 |
+| v1.5.0 | 校对模式、轻量级模型、Pipeline 编排器 | 计划中 |
+| v1.6.0 | 多 ASR 引擎、插件系统、整合包配置预设 | 计划中 |
 | v2.0.0 | 字幕编辑器、Docker 部署 | 远期规划 |
 
 ---
