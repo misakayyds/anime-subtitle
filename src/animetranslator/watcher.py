@@ -70,12 +70,12 @@ def run_watcher(shutdown_on_complete=False):
     def background_translation_task(json_path, input_video, expected_output_ass):
         """后台翻译任务"""
         try:
-            log_info(f"🚀 [后台分发] 正在为 {input_video.name} 并发请求 DeepSeek...")
+            log_info(f"🚀 [Background] Requesting DeepSeek translation for {input_video.name}...")
             run_translation(str(json_path), str(expected_output_ass))
 
             if expected_output_ass.exists():
                 log_info(
-                    f"🎉 [后台大捷] {input_video.name} 的完美字幕已直接送达: {expected_output_ass}"
+                    f"🎉 [Background Success] Subtitle ready for {input_video.name}: {expected_output_ass}"
                 )
 
             if json_path.exists():
@@ -86,7 +86,7 @@ def run_watcher(shutdown_on_complete=False):
                 shutil.rmtree(vocals_dir)
 
         except Exception as e:
-            log_error(f"💥 [后台崩溃] {input_video.name} API 翻译失败: {e}")
+            log_error(f"💥 [Background Error] {input_video.name} translation failed: {e}")
         finally:
             if input_video in active_api_tasks:
                 active_api_tasks.remove(input_video)
@@ -112,7 +112,7 @@ def run_watcher(shutdown_on_complete=False):
                         continue
 
                     log_info(f"\n" + "=" * 50)
-                    log_info(f"🎯 [前台 GPU 锁定目标] {rel_path.name}")
+                    log_info(f"🎯 [GPU Target] {rel_path.name}")
 
                     expected_output_ass.parent.mkdir(parents=True, exist_ok=True)
                     json_name = f"{input_video.stem}_alignment.json"
@@ -120,24 +120,26 @@ def run_watcher(shutdown_on_complete=False):
 
                     try:
                         if json_path.exists():
-                            log_info(f"⏩ 检测到遗留的 JSON 底稿 {json_name}")
-                            log_info("⏩ 已自动跳过第一阶段(语音识别)，直接恢复进度！")
+                            log_info(f"⏩ Found existing JSON draft {json_name}")
+                            log_info("⏩ Skipping stage 1 (speech recognition), resuming progress!")
                         else:
-                            log_info(f"--> [独占显卡] 压榨 GPU 提取对齐中...")
+                            log_info(f"--> [GPU Exclusive] Extracting alignment...")
                             try:
                                 success = alignment_engine.perform_ultimate_alignment(
                                     input_video, str(json_path)
                                 )
                                 if not success:
-                                    log_warning(f"⚠️ 模型提取遭遇异常返回。")
+                                    log_warning(f"⚠️ Model extraction returned abnormal.")
                             except Exception as e:
-                                log_warning(f"⚠️ 捕获到模型运行时致命异常: {e}")
+                                log_warning(f"⚠️ Runtime fatal exception: {e}")
 
                             if not json_path.exists():
-                                log_error(f"❌ 致命错误：未生成 JSON。")
+                                log_error(f"❌ Fatal: JSON not generated.")
                                 continue
 
-                        log_info(f"📦 底稿就绪！把 {rel_path.name} 一脚踹进后台 API 线程池！")
+                        log_info(
+                            f"📦 Draft ready! Kicking {rel_path.name} to background API thread pool!"
+                        )
 
                         active_api_tasks.add(input_video)
                         api_thread_pool.submit(
@@ -147,23 +149,23 @@ def run_watcher(shutdown_on_complete=False):
                         episodes_processed_since_last_unload += 1
                         if episodes_processed_since_last_unload >= alignment_batch_size:
                             log_info(
-                                f"\n🔄 已连续处理 {episodes_processed_since_last_unload} 集，触发定期显存清理机制。"
+                                f"\n🔄 Processed {episodes_processed_since_last_unload} episodes, triggering VRAM cleanup."
                             )
                             alignment_engine.clear_vram_cache()
                             episodes_processed_since_last_unload = 0
 
                     except Exception as e:
-                        log_error(f"💥 发生未知错误: {e}")
+                        log_error(f"💥 Unknown error: {e}")
 
-    mode_str = "自动关机版" if shutdown_on_complete else "永不关机版"
-    log_info(f"👀 异步并发巡逻监听已启动 ({mode_str})!")
-    log_info(f"⚙️ 当前最大 API 并发数: {max_api_workers}")
-    log_info(f"📥 监听目录: {INPUT_DIR}")
-    log_info(f"📤 输出目录: {OUTPUT_DIR}")
+    mode_str = "auto-shutdown" if shutdown_on_complete else "permanent"
+    log_info(f"👀 Async concurrent watcher started ({mode_str})!")
+    log_info(f"⚙️ Max API workers: {max_api_workers}")
+    log_info(f"📥 Input directory: {INPUT_DIR}")
+    log_info(f"📤 Output directory: {OUTPUT_DIR}")
     log_info("--------------------------------------------------")
-    log_info("将整季番剧文件夹拖入 Input，中途可随时关闭脚本。")
-    log_info("重新打开时，将自动从上次中断的地方继续。")
-    log_info("按下 Ctrl+C 可停止监听。")
+    log_info("Drop entire anime season folder into Input. Script can be closed anytime.")
+    log_info("When reopened, it will resume from where it left off.")
+    log_info("Press Ctrl+C to stop watching.")
 
     has_started_work = False
 
@@ -178,14 +180,14 @@ def run_watcher(shutdown_on_complete=False):
                 else:
                     if shutdown_on_complete and has_started_work:
                         log_info("\n" + "=" * 50)
-                        log_info("🎉 报告老板：所有前台 GPU 任务已清空！")
-                        log_info("⏳ 正在等待后台 DeepSeek 翻译收尾工作...")
+                        log_info("🎉 All foreground GPU tasks cleared!")
+                        log_info("⏳ Waiting for background DeepSeek translation to finish...")
 
                         api_thread_pool.shutdown(wait=True)
                         alignment_engine.clear_vram_cache()
 
-                        log_info("✅ 所有后台字幕均已成功生成！准备执行自动关机程序！")
-                        log_info("💡 【后悔药】按下 Win+R，输入 shutdown /a 取消关机！")
+                        log_info("✅ All background subtitles generated! Preparing auto-shutdown!")
+                        log_info("💡 [Undo] Press Win+R, type shutdown /a to cancel!")
                         log_info("=" * 50 + "\n")
 
                         if os.name == "nt":
@@ -195,12 +197,12 @@ def run_watcher(shutdown_on_complete=False):
                         break
 
             except KeyboardInterrupt:
-                log_info("\n监听已手动停止。正在清理后台与显存...")
+                log_info("\nWatcher stopped. Cleaning up background and VRAM...")
                 alignment_engine.clear_vram_cache()
                 api_thread_pool.shutdown(wait=False)
                 break
             except Exception as e:
-                log_error(f"主监听循环异常: {e}")
+                log_error(f"Main loop exception: {e}")
 
             time.sleep(10 if not shutdown_on_complete else 5)
     except KeyboardInterrupt:

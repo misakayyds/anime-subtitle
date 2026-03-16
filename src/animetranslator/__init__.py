@@ -8,5 +8,5 @@ AnimeTranslator - 动漫智能机翻/校对工具
 4. 点石成金 (质检 + DeepSeek 翻译)
 """
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 __author__ = "AnimeTranslator Team"

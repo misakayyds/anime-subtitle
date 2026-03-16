@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2026-03-16
+
+### Added
+
+- **Internationalization (i18n) support**: Full multi-language support for global users
+  - New `i18n.py` module with translation function `tr()`
+  - Locale files: `locales/zh_CN.json` (Chinese) and `locales/en_US.json` (English)
+  - Language detection: Environment variable `LANG`/`LC_ALL` → `.env` config → default Chinese
+  - WebUI language switcher: Dropdown menu for real-time language switching
+  - CLI help text translations
+  - Terminal output translations for device detection, config validation, and watcher
+
+- **Bilingual README**: Documentation now available in both languages
+  - `README.md` - English version (default)
+  - `README_CN.md` - Chinese version
+  - Language switch links at the top of each file
+
+- **New configuration option**: `ANIME_TRANSLATOR_LANG` in `.env`
+  - Supported values: `zh_CN` (Chinese), `en_US` (English)
+
+### Changed
+
+- WebUI now uses `tr()` function for all UI text, labels, and messages
+- CLI help text now supports internationalization
+- Device detection and config validation messages now in English (technical output)
+- Watcher mode messages now in English (technical output)
+
 ## [1.2.1] - 2026-03-14
 
 ### Added

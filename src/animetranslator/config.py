@@ -84,36 +84,38 @@ def validate_config() -> list:
 
     api_key = get_env("DEEPSEEK_API_KEY", "")
     if not api_key or api_key.strip() == "":
-        warnings.append("❌ DEEPSEEK_API_KEY 未配置，翻译功能将无法使用")
+        warnings.append("❌ DEEPSEEK_API_KEY not configured, translation will not work")
     elif not api_key.startswith("sk-"):
-        warnings.append("⚠️ DEEPSEEK_API_KEY 格式可能不正确（通常以 'sk-' 开头）")
+        warnings.append("⚠️ DEEPSEEK_API_KEY format may be incorrect (should start with 'sk-')")
 
     device = get_env("DEVICE", "auto") or "auto"
     valid_devices = ("auto", "cuda", "rocm", "mps", "cpu")
     if device.lower() not in valid_devices:
-        warnings.append(f"⚠️ DEVICE='{device}' 无效，应为: {', '.join(valid_devices)}")
+        warnings.append(f"⚠️ DEVICE='{device}' invalid, should be: {', '.join(valid_devices)}")
 
     whisper_model = get_env("WHISPER_MODEL", "") or ""
     valid_models = ("", "large-v3", "medium", "small")
     if whisper_model and whisper_model not in valid_models:
         warnings.append(
-            f"⚠️ WHISPER_MODEL='{whisper_model}' 无效，应为: large-v3, medium, small 或留空"
+            f"⚠️ WHISPER_MODEL='{whisper_model}' invalid, should be: large-v3, medium, small or empty"
         )
 
     max_workers = get_env_int("MAX_API_WORKERS", 3)
     if max_workers < 1 or max_workers > 10:
-        warnings.append(f"⚠️ MAX_API_WORKERS={max_workers} 超出建议范围 (1-10)")
+        warnings.append(f"⚠️ MAX_API_WORKERS={max_workers} out of recommended range (1-10)")
 
     batch_size = get_env_int("ALIGNMENT_BATCH_SIZE", 3)
     if batch_size < 1 or batch_size > 20:
-        warnings.append(f"⚠️ ALIGNMENT_BATCH_SIZE={batch_size} 超出建议范围 (1-20)")
+        warnings.append(f"⚠️ ALIGNMENT_BATCH_SIZE={batch_size} out of recommended range (1-20)")
 
     nsp_threshold = get_env_float("NO_SPEECH_PROB_THRESHOLD", 0.7)
     if nsp_threshold < 0.0 or nsp_threshold > 1.0:
-        warnings.append(f"⚠️ NO_SPEECH_PROB_THRESHOLD={nsp_threshold} 超出有效范围 (0.0-1.0)")
+        warnings.append(f"⚠️ NO_SPEECH_PROB_THRESHOLD={nsp_threshold} out of valid range (0.0-1.0)")
 
     cr_threshold = get_env_float("COMPRESSION_RATIO_THRESHOLD", 2.8)
     if cr_threshold < 1.0 or cr_threshold > 10.0:
-        warnings.append(f"⚠️ COMPRESSION_RATIO_THRESHOLD={cr_threshold} 超出建议范围 (1.0-10.0)")
+        warnings.append(
+            f"⚠️ COMPRESSION_RATIO_THRESHOLD={cr_threshold} out of recommended range (1.0-10.0)"
+        )
 
     return warnings

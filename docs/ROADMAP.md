@@ -142,11 +142,13 @@ TRANSLATION_PARALLEL_PROVIDERS=deepseek,openai
 
 ## 🖥️ WebUI 模块
 
-### P1 - 国际化 (i18n)
+### ✅ 国际化 (i18n)
 
-- [ ] 英文界面支持
-- [ ] 日文界面支持
-- [ ] 自动检测系统语言
+- [x] 英文界面支持
+- [x] 自动检测系统语言
+- [x] WebUI 语言切换下拉框
+- [x] CLI 帮助文本国际化
+- [x] 双语文档 (README)
 
 ---
 
@@ -246,7 +248,7 @@ TRANSLATION_PARALLEL_PROVIDERS=deepseek,openai
 
 | 版本 | 重点功能 | 状态 |
 |------|----------|------|
-| v1.2.x | 多格式视频支持、日志系统 | ✅ 已发布 |
+| v1.2.x | 多格式视频支持、日志系统、国际化 (i18n) | ✅ 已发布 |
 | v1.3.0 | 多服务商支持、降级逻辑改进 | 计划中 |
 | v1.4.0 | Provider 抽象、校对模式、轻量级模型 | 计划中 |
 | v1.5.0 | Pipeline 编排器、多 ASR 引擎、多语言支持 | 计划中 |
@@ -265,4 +267,4 @@ TRANSLATION_PARALLEL_PROVIDERS=deepseek,openai
 
 ---
 
-*最后更新：2026-03-14*
+*最后更新：2026-03-16*

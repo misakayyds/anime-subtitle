@@ -11,6 +11,8 @@ AnimeTranslator CLI 命令行入口
 import argparse
 import sys
 
+from .i18n import tr
+
 
 def _run_config_validation():
     """运行配置验证并打印警告"""
@@ -21,7 +23,7 @@ def _run_config_validation():
     warnings = validate_config()
     if warnings:
         log_warning("=" * 50)
-        log_warning("配置验证警告:")
+        log_warning(tr("config.warning.title"))
         for w in warnings:
             log_warning(f"  {w}")
         log_warning("=" * 50)
@@ -45,18 +47,16 @@ def cmd_watch(args):
 
 def main():
     """CLI 主入口"""
-    parser = argparse.ArgumentParser(
-        prog="animetranslator", description="动漫智能机翻/校对工具 - 音韵炼金术四阶段管线"
-    )
+    parser = argparse.ArgumentParser(prog="animetranslator", description=tr("cli.prog"))
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    webui_parser = subparsers.add_parser("webui", help="启动 WebUI 界面")
-    webui_parser.add_argument("--port", type=int, default=7860, help="WebUI 端口 (默认: 7860)")
-    webui_parser.add_argument("--share", action="store_true", help="生成公网分享链接")
+    webui_parser = subparsers.add_parser("webui", help=tr("cli.webui.help"))
+    webui_parser.add_argument("--port", type=int, default=7860, help=tr("cli.webui.port"))
+    webui_parser.add_argument("--share", action="store_true", help=tr("cli.webui.share"))
     webui_parser.set_defaults(func=cmd_webui)
 
-    watch_parser = subparsers.add_parser("watch", help="启动后台看门狗监听")
-    watch_parser.add_argument("--shutdown", action="store_true", help="处理完成后自动关机")
+    watch_parser = subparsers.add_parser("watch", help=tr("cli.watch.help"))
+    watch_parser.add_argument("--shutdown", action="store_true", help=tr("cli.watch.shutdown"))
     watch_parser.set_defaults(func=cmd_watch)
 
     args = parser.parse_args()

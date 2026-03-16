@@ -12,6 +12,8 @@ from enum import Enum
 
 import torch
 
+from .i18n import tr
+
 
 class DeviceType(Enum):
     CUDA = "cuda"
@@ -51,7 +53,7 @@ def get_device_type() -> DeviceType:
         else:
             from .logger import log_warning
 
-            log_warning("⚠️ DEVICE=cuda 但 CUDA 不可用，回退到自动检测")
+            log_warning("⚠️ DEVICE=cuda but CUDA unavailable, falling back to auto-detection")
             return detect_device()
     elif env_device == "rocm":
         if torch.cuda.is_available() and is_rocm():
@@ -59,7 +61,7 @@ def get_device_type() -> DeviceType:
         else:
             from .logger import log_warning
 
-            log_warning("⚠️ DEVICE=rocm 但 ROCm 不可用，回退到自动检测")
+            log_warning("⚠️ DEVICE=rocm but ROCm unavailable, falling back to auto-detection")
             return detect_device()
     elif env_device == "mps":
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -67,7 +69,7 @@ def get_device_type() -> DeviceType:
         else:
             from .logger import log_warning
 
-            log_warning("⚠️ DEVICE=mps 但 MPS 不可用，回退到自动检测")
+            log_warning("⚠️ DEVICE=mps but MPS unavailable, falling back to auto-detection")
             return detect_device()
     elif env_device == "cpu":
         return DeviceType.CPU
@@ -146,7 +148,7 @@ def get_device_info() -> str:
     elif device == DeviceType.MPS:
         return "MPS (Apple Silicon)"
     else:
-        return "CPU (无GPU加速，速度较慢)"
+        return "CPU (No GPU acceleration, slower)"
 
 
 def clear_device_cache():
@@ -169,22 +171,22 @@ def print_device_info():
     device = get_device_type()
     info = get_device_info()
 
-    log_info(f"🖥️ 设备类型: {info}")
+    log_info(f"🖥️ Device: {info}")
 
     if device in (DeviceType.CUDA, DeviceType.ROCM):
         whisper_model = get_recommended_whisper_model()
         compute_type = get_compute_type()
-        log_info(f"🎯 Whisper 模型: {whisper_model}")
-        log_info(f"⚙️ 计算精度: {compute_type}")
+        log_info(f"🎯 Whisper model: {whisper_model}")
+        log_info(f"⚙️ Compute type: {compute_type}")
     elif device == DeviceType.MPS:
         whisper_model = get_recommended_whisper_model()
         compute_type = get_compute_type()
-        log_info(f"🎯 Whisper 模型: {whisper_model}")
-        log_info(f"⚙️ 计算精度: {compute_type}")
+        log_info(f"🎯 Whisper model: {whisper_model}")
+        log_info(f"⚙️ Compute type: {compute_type}")
     else:
-        log_warning("⚠️ 警告: 使用 CPU 模式，处理速度将非常慢！")
-        log_info("💡 提示: 如有 NVIDIA GPU，请安装 CUDA 版 PyTorch")
-        log_info("💡 提示: 如有 AMD GPU，请安装 ROCm 版 PyTorch (仅 Linux)")
-        log_info("💡 提示: 如有 Apple Silicon Mac，MPS 将自动启用")
+        log_warning("⚠️ Warning: Using CPU mode, processing will be very slow!")
+        log_info("💡 Tip: If you have an NVIDIA GPU, please install CUDA PyTorch")
+        log_info("💡 Tip: If you have an AMD GPU, please install ROCm PyTorch (Linux only)")
+        log_info("💡 Tip: If you have Apple Silicon Mac, MPS will be enabled automatically")
         whisper_model = get_recommended_whisper_model()
-        log_info(f"🎯 Whisper 模型: {whisper_model} (轻量化)")
+        log_info(f"🎯 Whisper model: {whisper_model} (lightweight)")
